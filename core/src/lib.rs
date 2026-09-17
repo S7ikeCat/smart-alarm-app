@@ -135,11 +135,13 @@ impl UniffiCustomTypeConverter for NaiveTime {
     /// Ошибки, которые могут вернуть FFI-функции ядра. Отдельный enum вместо
     /// голого String — потому что uniffi умеет превращать error-enum в настоящее
     /// исключение на стороне Kotlin, а строку — нет (её пришлось бы парсить руками).
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+    #[derive(Debug, thiserror::Error, uniffi::Error)]
     pub enum AlarmCoreError {
-    #[error("instance {id} not found")]
-    InstanceNotFound { id: String },
-}
+        #[error("instance {id} not found")]
+        InstanceNotFound { id: String },
+        #[error("database error: {details}")]
+        DatabaseError { details: String },
+    }
 
 /// Генерирует конкретные будильники (AlarmInstance) из графика на заданный
 /// горизонт вперёд. Пока обрабатывает только Cyclic-паттерн (2/2, 5/2 и т.д.) —

@@ -1,4 +1,5 @@
 use rusqlite::{Connection, Result};
+use crate::DayType;
 
 /// Открывает (или создаёт) БД по указанному пути и накатывает схему,
 /// если таблиц ещё нет. `CREATE TABLE IF NOT EXISTS` — идемпотентно,
@@ -204,6 +205,25 @@ pub fn load_alarm_instances(conn: &Connection, schedule_id: Uuid) -> Result<Vec<
     rows.collect()
 }
 
+use crate::AlarmCoreError;
+
+/// FFI-обёртка: открывает БД по пути, сохраняет график, закрывает соединение.
+/// Мобильная сторона не должна управлять нативным Connection через границу FFI —
+/// поэтому вся работа с файлом происходит внутри одного вызова.
+#[uniffi::export]
+pub fn save_work_schedule_ffi(db_path: String, schedule: WorkSchedule) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    save_work_schedule(&conn, &schedule)
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
+/// FFI-обёртка: открывает БД, загружает все графики, закрывает соединение.
+#[uniffi::export]
+pub fn load_work_schedules_ffi(db_path: String) -> Result<Vec<WorkSchedule>, AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    load_work_schedules(&conn).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +320,35 @@ fn save_and_load_instances_roundtrip() {
     assert_eq!(loaded.len(), 2);
     assert!(loaded.iter().any(|i| i.status == crate::InstanceStatus::Active));
     assert!(loaded.iter().any(|i| i.status == crate::InstanceStatus::SkippedByUser));
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn ffi_save_and_load_roundtrip() {
+    let db_path = std::env::temp_dir().join(format!("test_ffi_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let schedule = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "FFI Test".to_string(),
+        color: "#E8875A".to_string(),
+        pattern: SchedulePattern::Custom(vec![DayType::Work, DayType::Rest]),
+        source: ScheduleSource::Custom,
+        start_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        shift_start_time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        alarms: vec![],
+        is_active: true,
+        is_paused: false,
+    };
+
+    save_work_schedule_ffi(db_path_str.clone(), schedule.clone()).unwrap();
+
+    let loaded = load_work_schedules_ffi(db_path_str).unwrap();
+
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].id, schedule.id);
+    assert_eq!(loaded[0].name, "FFI Test");
 
     std::fs::remove_file(db_path).ok();
 }
