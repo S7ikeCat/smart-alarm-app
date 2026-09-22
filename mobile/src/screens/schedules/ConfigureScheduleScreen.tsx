@@ -1,109 +1,38 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput } from 'react-native';
+import React, { useState, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { Clock } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock } from 'lucide-react-native';
+import uuid from 'react-native-uuid';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { SchedulesStackParamList } from '../../navigation/types';
-
-import { Alert } from 'react-native'; // добавь Alert в существующий импорт из 'react-native'
 import { saveWorkSchedule, NativeWorkSchedule } from '../../native/alarmCore';
-
-import uuid from 'react-native-uuid';
 
 type Route = RouteProp<SchedulesStackParamList, 'ConfigureSchedule'>;
 type Navigation = NativeStackNavigationProp<SchedulesStackParamList, 'ConfigureSchedule'>;
 
 const SCHEDULE_COLORS = ['#E8875A', '#4A7A6B', '#C0453A', '#6B8CAE', '#B08AC7'];
-const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 // Готовые варианты "за сколько до смены будить" — один тап вместо возни с пикером.
 const OFFSET_OPTIONS = [15, 30, 45, 60, 90, 120];
 
 type DayOverride = 'work' | 'rest';
-type GridCell = { date: Date; inCurrentMonth: boolean };
 
-function isSameDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-  );
-}
-
-function startOfDay(d: Date) {
-  const copy = new Date(d);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
-
-function addDays(d: Date, days: number) {
-  const copy = new Date(d);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-
-function isWorkDayByPattern(date: Date, startDate: Date, pattern: boolean[]) {
-  const cycleLen = pattern.length;
-  const diffDays = Math.floor(
-    (startOfDay(date).getTime() - startOfDay(startDate).getTime()) / 86400000,
-  );
-  if (diffDays < 0) return false;
-  const dayInCycle = diffDays % cycleLen;
-  return pattern[dayInCycle];
-}
-
-function chunkIntoWeeks(cells: GridCell[]): GridCell[][] {
-  const weeks: GridCell[][] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7));
-  }
-  return weeks;
-}
-
-/**
- * Строит сетку месяца с ISO-неделями (Пн...Вс). Дополняет ведущие и
- * замыкающие ячейки днями соседних месяцев (приглушённые, некликабельные),
- * чтобы сетка всегда была ровной — без пустых "дыр".
- */
-function buildMonthGrid(monthDate: Date): GridCell[] {
-  const year = monthDate.getFullYear();
-  const month = monthDate.getMonth();
-  const firstDayOfMonth = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-  // JS getDay(): Вс=0, Пн=1, ..., Сб=6. Переводим так, чтобы Пн=0 ... Вс=6.
-  const firstWeekdayIndex = (firstDayOfMonth.getDay() + 6) % 7;
-
-  const grid: GridCell[] = [];
-
-  for (let i = firstWeekdayIndex - 1; i >= 0; i--) {
-    grid.push({ date: new Date(year, month - 1, daysInPrevMonth - i), inCurrentMonth: false });
-  }
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    grid.push({ date: new Date(year, month, d), inCurrentMonth: true });
-  }
-
-  while (grid.length % 7 !== 0) {
-    const lastDate = grid[grid.length - 1].date;
-    grid.push({ date: addDays(lastDate, 1), inCurrentMonth: false });
-  }
-
-  return grid;
-}
-
-function addMonths(date: Date, delta: number) {
-  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
-}
-
-function formatMonth(date: Date) {
-  return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
-}
+import {
+  isSameDay,
+  startOfDay,
+  addDays,
+  isWorkDayByPattern,
+  chunkIntoWeeks,
+  buildMonthGrid,
+  addMonths,
+  formatMonth,
+  WEEKDAY_LABELS,
+} from '../../utils/scheduleCalendar';
 
 function formatStartLabel(date: Date) {
   return date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -127,35 +56,81 @@ function formatOffset(minutes: number) {
 export function ConfigureScheduleScreen() {
   const route = useRoute<Route>();
   const navigation = useNavigation<Navigation>();
-  const { presetId, presetName, pattern } = route.params;
+  const { presetId, presetName, pattern, existingSchedule } = route.params;
+  const isEditing = existingSchedule !== undefined;
 
-  const [name, setName] = useState(presetName);
-  const [selectedColor, setSelectedColor] = useState(SCHEDULE_COLORS[0]);
+  const [name, setName] = useState(existingSchedule?.name ?? presetName);
+  const [selectedColor, setSelectedColor] = useState(
+    existingSchedule?.color ?? SCHEDULE_COLORS[0],
+  );
   const [visibleMonth, setVisibleMonth] = useState(new Date());
   const [overrides, setOverrides] = useState<Record<string, DayOverride>>({});
 
-  // Время начала смены. По умолчанию 08:00 — типичное начало дневной смены.
+  // Время начала смены. При редактировании — из сохранённого графика
+  // (строка "HH:MM:SS"), иначе по умолчанию 08:00.
   const [shiftTime, setShiftTime] = useState(() => {
     const d = new Date();
-    d.setHours(8, 0, 0, 0);
+    if (existingSchedule) {
+      const [hours, minutes] = existingSchedule.shiftStartTime.split(':').map(Number);
+      d.setHours(hours, minutes, 0, 0);
+    } else {
+      d.setHours(8, 0, 0, 0);
+    }
     return d;
   });
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
-  // За сколько минут до смены будить. Можно несколько — "за 2 часа" + "за 30 минут".
-  const [alarmOffsets, setAlarmOffsets] = useState<number[]>([30]);
+  // За сколько минут до смены будить. При редактировании — из сохранённых
+  // правил, иначе одна заготовка по умолчанию (за 30 минут).
+  const [alarmOffsets, setAlarmOffsets] = useState<number[]>(() =>
+    existingSchedule ? existingSchedule.alarms.map(a => a.offsetMinutes) : [30],
+  );
 
-  // По умолчанию выравниваем цикл так, чтобы первый день паттерна попал на
-  // понедельник — это то, чего ждёт большинство (обычная пятидневка Пн-Пт).
-  // Стрелки остаются для тех, у кого график сдвинут (5/2 с началом в субботу и т.п.).
+  // При редактировании дата старта берётся из сохранённого графика напрямую
+  // (стрелки сдвига цикла при этом временно не пересчитывают её заново).
+  // При создании нового — по умолчанию выравниваем цикл так, чтобы первый
+  // день паттерна попал на понедельник (обычная пятидневка Пн-Пт).
   const [startOffset, setStartOffset] = useState(() => {
+    if (existingSchedule) return 0;
     const todayWeekday = (new Date().getDay() + 6) % 7; // Пн=0 ... Вс=6
     const daysUntilMonday = (7 - todayWeekday) % 7;
     return daysUntilMonday % pattern.length;
   });
 
-  const startDate = useMemo(() => startOfDay(addDays(new Date(), startOffset)), [startOffset]);
+  const startDate = useMemo(() => {
+    if (existingSchedule) {
+      const [year, month, day] = existingSchedule.startDate.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+    return startOfDay(addDays(new Date(), startOffset));
+  }, [startOffset, existingSchedule]);
+
   const monthWeeks = useMemo(() => chunkIntoWeeks(buildMonthGrid(visibleMonth)), [visibleMonth]);
+
+  // Снимок исходного состояния — чтобы понимать, реально ли пользователь
+  // что-то поменял. Фиксируется один раз при открытии экрана.
+  const initialSignatureRef = useRef(
+    JSON.stringify({
+      name: existingSchedule?.name ?? presetName,
+      color: existingSchedule?.color ?? SCHEDULE_COLORS[0],
+      shiftStartTime: existingSchedule ? existingSchedule.shiftStartTime.slice(0, 5) : '08:00',
+      alarmOffsets: existingSchedule
+        ? [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a)
+        : [30],
+    }),
+  );
+
+  const hasChanges = useMemo(() => {
+    const currentSignature = JSON.stringify({
+      name,
+      color: selectedColor,
+      shiftStartTime: formatTime(shiftTime),
+      alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
+    });
+    return currentSignature !== initialSignatureRef.current;
+  }, [name, selectedColor, shiftTime, alarmOffsets]);
+
+  const showSaveButton = !isEditing || hasChanges;
 
   function dateKey(d: Date) {
     return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -186,7 +161,7 @@ export function ConfigureScheduleScreen() {
 
   async function handleSave() {
     const nativeSchedule: NativeWorkSchedule = {
-      id: uuid.v4() as string,
+      id: existingSchedule?.id ?? (uuid.v4() as string),
       name,
       color: selectedColor,
       pattern,
@@ -199,10 +174,10 @@ export function ConfigureScheduleScreen() {
         ringtoneId: 'default',
         vibration: true,
       })),
-      isActive: true,
-      isPaused: false,
+      isActive: existingSchedule?.isActive ?? true,
+      isPaused: existingSchedule?.isPaused ?? false,
     };
-  
+
     try {
       await saveWorkSchedule(nativeSchedule);
       navigation.popToTop();
@@ -238,25 +213,25 @@ export function ConfigureScheduleScreen() {
 
       <Text style={styles.sectionLabel}>Начало смены</Text>
       <Pressable style={styles.timeRow} onPress={() => setIsPickerOpen(true)}>
-  <Clock color={colors.textSecondary} size={20} />
-  <Text style={styles.timeValue}>{formatTime(shiftTime)}</Text>
-  <Text style={styles.timeHint}>изменить</Text>
-</Pressable>
+        <Clock color={colors.textSecondary} size={20} />
+        <Text style={styles.timeValue}>{formatTime(shiftTime)}</Text>
+        <Text style={styles.timeHint}>изменить</Text>
+      </Pressable>
 
       {isPickerOpen && (
-  <DateTimePicker
-    value={shiftTime}
-    mode="time"
-    is24Hour
-    onValueChange={(event, selected) => {
-      setIsPickerOpen(false);
-      if (selected) {
-        setShiftTime(selected);
-      }
-    }}
-    onDismiss={() => setIsPickerOpen(false)}
-  />
-)}
+        <DateTimePicker
+          value={shiftTime}
+          mode="time"
+          is24Hour
+          onValueChange={(event, selected) => {
+            setIsPickerOpen(false);
+            if (selected) {
+              setShiftTime(selected);
+            }
+          }}
+          onDismiss={() => setIsPickerOpen(false)}
+        />
+      )}
 
       <Text style={styles.sectionLabel}>Будить до смены</Text>
       <View style={styles.offsetsWrap}>
@@ -399,13 +374,17 @@ export function ConfigureScheduleScreen() {
         </View>
       </View>
 
-      <Pressable
-        style={[styles.saveButton, alarmOffsets.length === 0 && styles.saveButtonDisabled]}
-        disabled={alarmOffsets.length === 0}
-        onPress={handleSave}
-      >
-        <Text style={styles.saveButtonText}>Сохранить график</Text>
-      </Pressable>
+      {showSaveButton && (
+        <Pressable
+          style={[styles.saveButton, alarmOffsets.length === 0 && styles.saveButtonDisabled]}
+          disabled={alarmOffsets.length === 0}
+          onPress={handleSave}
+        >
+          <Text style={styles.saveButtonText}>
+            {isEditing ? 'Сохранить изменения' : 'Сохранить график'}
+          </Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }

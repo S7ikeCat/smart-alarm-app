@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Alert, BackHandler } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Plus, Trash2, Check } from 'lucide-react-native';
+import { Plus, Trash2, Check, Circle, CircleDot } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { SchedulesStackParamList } from '../../navigation/types';
-import { loadWorkSchedules, NativeWorkSchedule } from '../../native/alarmCore';
+import { loadWorkSchedules, deleteWorkSchedule, setActiveSchedule, NativeWorkSchedule } from '../../native/alarmCore';
 
 type Navigation = NativeStackNavigationProp<SchedulesStackParamList, 'SchedulesList'>;
 
@@ -24,9 +24,6 @@ export function SchedulesScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const isSelectionMode = selectedIds.size > 0;
 
-  // Перезагружаем список каждый раз, когда экран получает фокус — не только
-  // при первом открытии. Иначе после сохранения нового графика список
-  // останется старым до перезапуска приложения.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -47,6 +44,23 @@ export function SchedulesScreen() {
     }, []),
   );
 
+  // Кнопка "назад" сначала отменяет режим выбора, а не сразу уводит с экрана —
+  // так пользователь может передумать удалять, не теряя контекст.
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (isSelectionMode) {
+          setSelectedIds(new Set());
+          return true; // забираем событие на себя, не даём уйти с экрана
+        }
+        return false; // обычное поведение "назад"
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }, [isSelectionMode]),
+  );
+
   function toggleSelection(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -65,18 +79,47 @@ export function SchedulesScreen() {
     }
   }
 
-  function handlePress(id: string) {
-    if (isSelectionMode) {
-      toggleSelection(id);
+  async function handleSetActive(scheduleId: string) {
+    try {
+      await setActiveSchedule(scheduleId);
+      setSchedules(prev => prev.map(s => ({ ...s, isActive: s.id === scheduleId })));
+    } catch (error) {
+      Alert.alert('Не удалось выбрать график', String(error));
     }
-    // TODO: вне режима выбора — открыть детали графика, когда появится экран
   }
 
-  function handleDelete() {
-    // TODO: пока убирает только с экрана — настоящее удаление из БД появится,
-    // когда добавим delete_work_schedule_ffi в Rust-ядро
-    setSchedules(prev => prev.filter(s => !selectedIds.has(s.id)));
-    setSelectedIds(new Set());
+  function handlePress(schedule: NativeWorkSchedule) {
+    if (isSelectionMode) {
+      toggleSelection(schedule.id);
+      return;
+    }
+
+    if (!schedule.isActive) {
+      // Первый тап по неактивному графику — просто делаем его активным,
+      // остаёмся на экране. Настроить его можно вторым тапом, когда он
+      // уже станет активным — так не нужна отдельная маленькая кнопка,
+      // по которой легко промахнуться.
+      handleSetActive(schedule.id);
+      return;
+    }
+
+    navigation.navigate('ConfigureSchedule', {
+      presetId: schedule.sourcePresetId ?? 'custom',
+      presetName: schedule.name,
+      pattern: schedule.pattern,
+      existingSchedule: schedule,
+    });
+  }
+
+  async function handleDelete() {
+    const idsToDelete = Array.from(selectedIds);
+    try {
+      await Promise.all(idsToDelete.map(id => deleteWorkSchedule(id)));
+      setSchedules(prev => prev.filter(s => !selectedIds.has(s.id)));
+      setSelectedIds(new Set());
+    } catch (error) {
+      Alert.alert('Не удалось удалить график', String(error));
+    }
   }
 
   if (isLoading) {
@@ -110,11 +153,11 @@ export function SchedulesScreen() {
             <Pressable
               style={[
                 styles.card,
-                !item.isActive && !isSelected && styles.cardPaused,
+                !item.isActive && !isSelected && styles.cardInactive,
                 isSelected && styles.cardSelected,
               ]}
               onLongPress={() => handleLongPress(item.id)}
-              onPress={() => handlePress(item.id)}
+              onPress={() => handlePress(item)}
             >
               {isSelectionMode && (
                 <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
@@ -131,9 +174,14 @@ export function SchedulesScreen() {
                       {item.sourcePresetId ? 'Шаблон' : 'Свой'}
                     </Text>
                   </View>
-                  {!item.isActive && <Text style={styles.pausedLabel}>На паузе</Text>}
                 </View>
               </View>
+              {!isSelectionMode &&
+                (item.isActive ? (
+                  <CircleDot color={colors.accent} size={22} />
+                ) : (
+                  <Circle color={colors.textSecondary} size={22} />
+                ))}
             </Pressable>
           );
         }}
@@ -167,7 +215,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  cardPaused: { opacity: 0.5 },
+  cardInactive: { opacity: 0.6 },
   cardSelected: { borderColor: colors.accent },
   checkbox: {
     width: 22,
@@ -190,10 +238,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    marginRight: spacing.sm,
   },
   badgeText: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
-  pausedLabel: { ...typography.caption, color: colors.accent },
   fab: {
     position: 'absolute',
     right: spacing.lg,

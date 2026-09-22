@@ -27,6 +27,7 @@ function SchedulesStackNavigator() {
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.textPrimary,
         headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
       }}
     >
       <SchedulesStack.Screen
@@ -57,7 +58,8 @@ export function RootNavigator() {
   return (
     <NavigationContainer>
       <Tab.Navigator
-        screenOptions={{
+      screenOptions={{
+      sceneStyle: { backgroundColor: colors.background },
           headerShown: false,
           tabBarActiveTintColor: colors.accent,
           tabBarInactiveTintColor: colors.textSecondary,

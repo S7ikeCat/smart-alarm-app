@@ -6,6 +6,7 @@ use crate::DayType;
 /// можно звать при каждом запуске приложения без риска стереть данные.
 pub fn init_db(path: &str) -> Result<Connection> {
     let conn = Connection::open(path)?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
     conn.execute_batch(
         "
@@ -24,7 +25,7 @@ pub fn init_db(path: &str) -> Result<Connection> {
 
         CREATE TABLE IF NOT EXISTS alarm_instances (
             id TEXT PRIMARY KEY,
-            schedule_id TEXT REFERENCES work_schedules(id),
+            schedule_id TEXT REFERENCES work_schedules(id) ON DELETE CASCADE,
             date TEXT NOT NULL,
             time_local TEXT NOT NULL,
             status TEXT NOT NULL,
@@ -224,6 +225,67 @@ pub fn load_work_schedules_ffi(db_path: String) -> Result<Vec<WorkSchedule>, Ala
     load_work_schedules(&conn).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
 }
 
+/// FFI-обёртка: открывает БД, удаляет график по id (вместе со всеми его
+/// инстансами благодаря ON DELETE — см. ниже), закрывает соединение.
+#[uniffi::export]
+pub fn delete_work_schedule_ffi(db_path: String, schedule_id: Uuid) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute(
+        "DELETE FROM work_schedules WHERE id = ?1",
+        [schedule_id.to_string()],
+    )
+    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
+}
+
+/// Делает ровно один график активным, снимая активность со всех
+/// остальных — гарантирует правило "строго один активный график"
+/// на уровне данных, а не полагается на аккуратность мобильной стороны.
+#[uniffi::export]
+pub fn set_active_schedule_ffi(db_path: String, schedule_id: Uuid) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    let tx = conn.unchecked_transaction()
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    tx.execute("UPDATE work_schedules SET is_active = 0", [])
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    tx.execute(
+        "UPDATE work_schedules SET is_active = 1 WHERE id = ?1",
+        [schedule_id.to_string()],
+    )
+    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    tx.commit().map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    Ok(())
+}
+
+/// Генерирует и объединяет предстоящие будильники всех активных графиков
+/// за один вызов — мобильной стороне не нужно знать, сколько графиков есть
+/// и как их правильно смешивать между собой.
+#[uniffi::export]
+pub fn generate_upcoming_alarms_ffi(
+    db_path: String,
+    horizon_months: u32,
+) -> Result<Vec<AlarmInstance>, AlarmCoreError> {
+    let conn = init_db(&db_path)
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let schedules = load_work_schedules(&conn)
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    let mut all_instances: Vec<AlarmInstance> = Vec::new();
+    for schedule in schedules.iter().filter(|s| s.is_active) {
+        let instances = crate::generate_instances(schedule, horizon_months);
+        all_instances.extend(instances);
+    }
+
+    all_instances.sort_by(|a, b| (a.date, a.time_local).cmp(&(b.date, b.time_local)));
+
+    Ok(all_instances)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +411,96 @@ fn ffi_save_and_load_roundtrip() {
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].id, schedule.id);
     assert_eq!(loaded[0].name, "FFI Test");
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn set_active_schedule_makes_exactly_one_active() {
+    let db_path = std::env::temp_dir().join(format!("test_active_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let conn = init_db(&db_path_str).unwrap();
+
+    let schedule_a = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "График A".to_string(),
+        color: "#E8875A".to_string(),
+        pattern: SchedulePattern::Custom(vec![DayType::Work, DayType::Rest]),
+        source: ScheduleSource::Custom,
+        start_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        shift_start_time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        alarms: vec![],
+        is_active: true,
+        is_paused: false,
+    };
+    let schedule_b = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "График B".to_string(),
+        is_active: false,
+        ..schedule_a.clone()
+    };
+
+    save_work_schedule(&conn, &schedule_a).unwrap();
+    save_work_schedule(&conn, &schedule_b).unwrap();
+
+    // Переключаем активность на B — A должен погаснуть
+    set_active_schedule_ffi(db_path_str.clone(), schedule_b.id).unwrap();
+
+    let loaded = load_work_schedules_ffi(db_path_str).unwrap();
+    let loaded_a = loaded.iter().find(|s| s.id == schedule_a.id).unwrap();
+    let loaded_b = loaded.iter().find(|s| s.id == schedule_b.id).unwrap();
+
+    assert_eq!(loaded_a.is_active, false);
+    assert_eq!(loaded_b.is_active, true);
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn generate_upcoming_alarms_merges_only_active_schedules() {
+    let db_path = std::env::temp_dir().join(format!("test_upcoming_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let conn = init_db(&db_path_str).unwrap();
+
+    let active_schedule = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "Активный".to_string(),
+        color: "#E8875A".to_string(),
+        pattern: SchedulePattern::Custom(vec![DayType::Work, DayType::Rest]),
+        source: ScheduleSource::Custom,
+        start_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        shift_start_time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        alarms: vec![AlarmRule {
+            id: Uuid::new_v4(),
+            offset_minutes: 30,
+            ringtone_id: "default".to_string(),
+            vibration: true,
+        }],
+        is_active: true,
+        is_paused: false,
+    };
+    let paused_schedule = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "На паузе".to_string(),
+        is_active: false,
+        ..active_schedule.clone()
+    };
+
+    save_work_schedule(&conn, &active_schedule).unwrap();
+    save_work_schedule(&conn, &paused_schedule).unwrap();
+
+    let instances = generate_upcoming_alarms_ffi(db_path_str, 1).unwrap();
+
+    // Все инстансы должны принадлежать только активному графику
+    assert!(instances.iter().all(|i| i.schedule_id == active_schedule.id));
+    assert!(!instances.is_empty());
+
+    // Список должен быть отсортирован по дате (не убывает)
+    for pair in instances.windows(2) {
+        assert!(pair[0].date <= pair[1].date);
+    }
 
     std::fs::remove_file(db_path).ok();
 }

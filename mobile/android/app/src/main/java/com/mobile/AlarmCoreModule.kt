@@ -116,7 +116,7 @@ class AlarmCoreModule(reactContext: ReactApplicationContext) :
     // --- методы, доступные из JS -------------------------------------------------
 
     @ReactMethod
-fun saveWorkScheduleJson(scheduleJson: String, promise: Promise) {
+    fun saveWorkScheduleJson(scheduleJson: String, promise: Promise) {
     android.util.Log.d("AlarmCoreDebug", "Входящий JSON: $scheduleJson")
     try {
         val schedule = workScheduleFromJson(scheduleJson)
@@ -134,6 +134,47 @@ fun saveWorkScheduleJson(scheduleJson: String, promise: Promise) {
             promise.resolve(workSchedulesToJson(schedules))
         } catch (e: Exception) {
             promise.reject("LOAD_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun deleteWorkSchedule(scheduleId: String, promise: Promise) {
+        try {
+            deleteWorkScheduleFfi(dbPath(), scheduleId)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("DELETE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun setActiveSchedule(scheduleId: String, promise: Promise) {
+        try {
+            setActiveScheduleFfi(dbPath(), scheduleId)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("SET_ACTIVE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun generateUpcomingAlarmsJson(horizonMonths: Double, promise: Promise) {
+        try {
+            val instances = generateUpcomingAlarmsFfi(dbPath(), horizonMonths.toUInt())
+            val array = JSONArray()
+            for (instance in instances) {
+                val obj = JSONObject()
+                obj.put("id", instance.id)
+                obj.put("scheduleId", instance.scheduleId)
+                obj.put("date", instance.date)
+                obj.put("timeLocal", instance.timeLocal)
+                obj.put("status", instance.status.name)
+                obj.put("origin", instance.origin.name)
+                array.put(obj)
+            }
+            promise.resolve(array.toString())
+        } catch (e: Exception) {
+            promise.reject("GENERATE_ERROR", e.message, e)
         }
     }
 }

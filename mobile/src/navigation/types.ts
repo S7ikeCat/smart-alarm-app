@@ -1,3 +1,5 @@
+import type { NativeWorkSchedule } from '../native/alarmCore';
+
 export type SchedulesStackParamList = {
   SchedulesList: undefined;
   CreateSchedule: undefined;
@@ -6,6 +8,7 @@ export type SchedulesStackParamList = {
     presetId: string;
     presetName: string;
     pattern: boolean[];
+    existingSchedule?: NativeWorkSchedule; // если задан — режим редактирования
   };
 };
 

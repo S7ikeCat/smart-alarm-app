@@ -721,6 +721,12 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -736,11 +742,17 @@ internal interface UniffiLib : Library {
         
     }
 
+    fun uniffi_alarm_core_fn_func_delete_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_work_schedules_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_resolve_timezone_alarm_ffi(`inputTime`: RustBuffer.ByValue,`referenceDate`: RustBuffer.ByValue,`sourceTzName`: RustBuffer.ByValue,`deviceTzName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_save_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`schedule`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_set_active_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_toggle_instance(`instances`: RustBuffer.ByValue,`instanceId`: RustBuffer.ByValue,`active`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -858,11 +870,17 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_alarm_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_checksum_func_delete_work_schedule_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_load_work_schedules_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_resolve_timezone_alarm_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_work_schedule_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_set_active_schedule_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_toggle_instance(
     ): Short
@@ -885,6 +903,12 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_alarm_core_checksum_func_delete_work_schedule_ffi() != 16715.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi() != 59704.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_load_work_schedules_ffi() != 49504.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -892,6 +916,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_work_schedule_ffi() != 30008.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_set_active_schedule_ffi() != 27717.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_toggle_instance() != 34289.toShort()) {
@@ -1773,6 +1800,34 @@ public typealias FfiConverterTypeNaiveTime = FfiConverterString
 public typealias Uuid = kotlin.String
 public typealias FfiConverterTypeUuid = FfiConverterString
         /**
+         * FFI-обёртка: открывает БД, удаляет график по id (вместе со всеми его
+         * инстансами благодаря ON DELETE — см. ниже), закрывает соединение.
+         */
+    @Throws(AlarmCoreException::class) fun `deleteWorkScheduleFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_work_schedule_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
+}
+    
+    
+
+        /**
+         * Генерирует и объединяет предстоящие будильники всех активных графиков
+         * за один вызов — мобильной стороне не нужно знать, сколько графиков есть
+         * и как их правильно смешивать между собой.
+         */
+    @Throws(AlarmCoreException::class) fun `generateUpcomingAlarmsFfi`(`dbPath`: kotlin.String, `horizonMonths`: kotlin.UInt): List<AlarmInstance> {
+            return FfiConverterSequenceTypeAlarmInstance.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),_status)
+}
+    )
+    }
+    
+
+        /**
          * FFI-обёртка: открывает БД, загружает все графики, закрывает соединение.
          */
     @Throws(AlarmCoreException::class) fun `loadWorkSchedulesFfi`(`dbPath`: kotlin.String): List<WorkSchedule> {
@@ -1809,6 +1864,20 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_work_schedule_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeWorkSchedule.lower(`schedule`),_status)
+}
+    
+    
+
+        /**
+         * Делает ровно один график активным, снимая активность со всех
+         * остальных — гарантирует правило "строго один активный график"
+         * на уровне данных, а не полагается на аккуратность мобильной стороны.
+         */
+    @Throws(AlarmCoreException::class) fun `setActiveScheduleFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_set_active_schedule_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
 }
     
     
