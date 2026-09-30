@@ -31,6 +31,24 @@ pub fn init_db(path: &str) -> Result<Connection> {
             status TEXT NOT NULL,
             origin TEXT NOT NULL
         );
+        
+        CREATE TABLE IF NOT EXISTS day_overrides (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL REFERENCES work_schedules(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,
+            is_work INTEGER NOT NULL,
+            UNIQUE(schedule_id, date)
+        );
+
+        CREATE TABLE IF NOT EXISTS custom_events (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL UNIQUE,
+            time_local TEXT NOT NULL,
+            color TEXT NOT NULL,
+            label TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            reminder_enabled INTEGER NOT NULL DEFAULT 1
+        );
         ",
     )?;
 
@@ -262,6 +280,64 @@ pub fn set_active_schedule_ffi(db_path: String, schedule_id: Uuid) -> Result<(),
     Ok(())
 }
 
+use crate::DayOverride;
+
+
+/// Полностью заменяет overrides графика на переданный набор — удаляет
+/// старые и записывает новые одной транзакцией. Простая и предсказуемая
+/// семантика: "вот актуальный список overrides на сейчас", а не накопление.
+#[uniffi::export]
+pub fn save_day_overrides_ffi(
+    db_path: String,
+    schedule_id: Uuid,
+    overrides: Vec<DayOverride>,
+) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let tx = conn.unchecked_transaction().map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    tx.execute("DELETE FROM day_overrides WHERE schedule_id = ?1", [schedule_id.to_string()])
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    for o in overrides {
+        tx.execute(
+            "INSERT INTO day_overrides (id, schedule_id, date, is_work) VALUES (?1, ?2, ?3, ?4)",
+            (
+                Uuid::new_v4().to_string(),
+                schedule_id.to_string(),
+                o.date.to_string(),
+                o.is_work,
+            ),
+        )
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    }
+
+    tx.commit().map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
+}
+
+/// Загружает все overrides конкретного графика.
+#[uniffi::export]
+pub fn load_day_overrides_ffi(db_path: String, schedule_id: Uuid) -> Result<Vec<DayOverride>, AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let mut stmt = conn
+        .prepare("SELECT date, is_work FROM day_overrides WHERE schedule_id = ?1")
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    let rows = stmt
+        .query_map([schedule_id.to_string()], |row| {
+            let date_str: String = row.get(0)?;
+            let is_work: bool = row.get(1)?;
+            Ok(DayOverride {
+                date: date_str.parse().expect("stored date should always be valid"),
+                is_work,
+            })
+        })
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
 /// Генерирует и объединяет предстоящие будильники всех активных графиков
 /// за один вызов — мобильной стороне не нужно знать, сколько графиков есть
 /// и как их правильно смешивать между собой.
@@ -277,13 +353,110 @@ pub fn generate_upcoming_alarms_ffi(
 
     let mut all_instances: Vec<AlarmInstance> = Vec::new();
     for schedule in schedules.iter().filter(|s| s.is_active) {
-        let instances = crate::generate_instances(schedule, horizon_months);
+        let mut instances = crate::generate_instances(schedule, horizon_months);
+
+        let overrides = load_day_overrides_ffi(db_path.clone(), schedule.id)
+            .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+        for o in &overrides {
+            let already_has_instance = instances.iter().any(|i| i.date == o.date);
+
+            if o.is_work && !already_has_instance {
+                // Override включает будильник там, где по паттерну был выходной —
+                // добавляем инстанс на каждое правило будильника графика.
+                for rule in &schedule.alarms {
+                    let alarm_time = schedule.shift_start_time
+                        - chrono::Duration::minutes(rule.offset_minutes as i64);
+                    instances.push(AlarmInstance {
+                        id: Uuid::new_v4(),
+                        schedule_id: schedule.id,
+                        date: o.date,
+                        time_local: alarm_time,
+                        status: InstanceStatus::Active,
+                        origin: AlarmOrigin::ManualOverride,
+                    });
+                }
+            } else if !o.is_work {
+                // Override выключает будильник там, где по паттерну была смена —
+                // убираем все инстансы на эту дату.
+                instances.retain(|i| i.date != o.date);
+            }
+        }
+
         all_instances.extend(instances);
     }
 
     all_instances.sort_by(|a, b| (a.date, a.time_local).cmp(&(b.date, b.time_local)));
 
     Ok(all_instances)
+}
+
+use crate::CustomEvent;
+
+/// Сохраняет новое или обновлённое событие (UPSERT по id).
+#[uniffi::export]
+pub fn save_custom_event_ffi(db_path: String, event: CustomEvent) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute(
+        "INSERT INTO custom_events (id, date, time_local, color, label, description, reminder_enabled)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+            date = excluded.date,
+            time_local = excluded.time_local,
+            color = excluded.color,
+            label = excluded.label,
+            description = excluded.description,
+            reminder_enabled = excluded.reminder_enabled",
+        (
+            event.id.to_string(),
+            event.date.to_string(),
+            event.time_local.to_string(),
+            &event.color,
+            &event.label,
+            &event.description,
+            event.reminder_enabled,
+        ),
+    )
+    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
+}
+
+/// Загружает все сохранённые события.
+#[uniffi::export]
+pub fn load_custom_events_ffi(db_path: String) -> Result<Vec<CustomEvent>, AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let mut stmt = conn
+    .prepare("SELECT id, date, time_local, color, label, description, reminder_enabled FROM custom_events")
+    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+let rows = stmt
+    .query_map([], |row| {
+        let id_str: String = row.get(0)?;
+        let date_str: String = row.get(1)?;
+        let time_str: String = row.get(2)?;
+        Ok(CustomEvent {
+            id: id_str.parse().expect("stored id should always be valid UUID"),
+            date: date_str.parse().expect("stored date should always be valid"),
+            time_local: time_str.parse().expect("stored time should always be valid"),
+            color: row.get(3)?,
+            label: row.get(4)?,
+            description: row.get(5)?,
+            reminder_enabled: row.get(6)?,
+        })
+    })
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
+/// Удаляет событие по id.
+#[uniffi::export]
+pub fn delete_custom_event_ffi(db_path: String, event_id: Uuid) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute("DELETE FROM custom_events WHERE id = ?1", [event_id.to_string()])
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -385,6 +558,8 @@ fn save_and_load_instances_roundtrip() {
 
     std::fs::remove_file(db_path).ok();
 }
+
+
 
 #[test]
 fn ffi_save_and_load_roundtrip() {
@@ -501,6 +676,134 @@ fn generate_upcoming_alarms_merges_only_active_schedules() {
     for pair in instances.windows(2) {
         assert!(pair[0].date <= pair[1].date);
     }
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn save_and_load_day_overrides_roundtrip() {
+    let db_path = std::env::temp_dir().join(format!("test_overrides_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let conn = init_db(&db_path_str).unwrap();
+
+    let schedule = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "Test".to_string(),
+        color: "#E8875A".to_string(),
+        pattern: SchedulePattern::Custom(vec![DayType::Work, DayType::Rest]),
+        source: ScheduleSource::Custom,
+        start_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        shift_start_time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        alarms: vec![],
+        is_active: true,
+        is_paused: false,
+    };
+    save_work_schedule(&conn, &schedule).unwrap();
+
+    let overrides = vec![
+        DayOverride { date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(), is_work: false },
+        DayOverride { date: NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(), is_work: true },
+    ];
+
+    save_day_overrides_ffi(db_path_str.clone(), schedule.id, overrides.clone()).unwrap();
+
+    let loaded = load_day_overrides_ffi(db_path_str.clone(), schedule.id).unwrap();
+    assert_eq!(loaded.len(), 2);
+
+    // Проверяем, что полная замена реально заменяет, а не накапливает —
+    // второй вызов с одним override должен оставить только его.
+    let replacement = vec![DayOverride {
+        date: NaiveDate::from_ymd_opt(2026, 2, 1).unwrap(),
+        is_work: false,
+    }];
+    save_day_overrides_ffi(db_path_str.clone(), schedule.id, replacement).unwrap();
+
+    let loaded_after_replace = load_day_overrides_ffi(db_path_str, schedule.id).unwrap();
+    assert_eq!(loaded_after_replace.len(), 1);
+    assert_eq!(loaded_after_replace[0].date, NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn generate_upcoming_alarms_respects_day_overrides() {
+    let db_path = std::env::temp_dir().join(format!("test_override_gen_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let conn = init_db(&db_path_str).unwrap();
+
+    let schedule = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "Test".to_string(),
+        color: "#E8875A".to_string(),
+        // Пн(раб)/Вт(вых) — 2-дневный цикл, стартует 1 января 2026 (четверг)
+        pattern: SchedulePattern::Custom(vec![DayType::Work, DayType::Rest]),
+        source: ScheduleSource::Custom,
+        start_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        shift_start_time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        alarms: vec![AlarmRule {
+            id: Uuid::new_v4(),
+            offset_minutes: 30,
+            ringtone_id: "default".to_string(),
+            vibration: true,
+        }],
+        is_active: true,
+        is_paused: false,
+    };
+    save_work_schedule(&conn, &schedule).unwrap();
+
+    // 1 января — рабочий по паттерну, 2 января — выходной по паттерну.
+    // Override переворачивает оба: 1-е становится выходным, 2-е — рабочим.
+    let overrides = vec![
+        DayOverride { date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), is_work: false },
+        DayOverride { date: NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(), is_work: true },
+    ];
+    save_day_overrides_ffi(db_path_str.clone(), schedule.id, overrides).unwrap();
+
+    let instances = generate_upcoming_alarms_ffi(db_path_str, 1).unwrap();
+
+    let jan_1 = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+    let jan_2 = NaiveDate::from_ymd_opt(2026, 1, 2).unwrap();
+
+    // 1 января теперь выходной — будильников быть не должно
+    assert!(!instances.iter().any(|i| i.date == jan_1));
+
+    // 2 января теперь рабочий — должен появиться будильник с пометкой ManualOverride
+    let jan_2_instance = instances.iter().find(|i| i.date == jan_2);
+    assert!(jan_2_instance.is_some());
+    assert_eq!(jan_2_instance.unwrap().origin, AlarmOrigin::ManualOverride);
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn save_load_delete_custom_event_roundtrip() {
+    let db_path = std::env::temp_dir().join(format!("test_event_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    init_db(&db_path_str).unwrap();
+
+    let event = CustomEvent {
+        id: Uuid::new_v4(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 15).unwrap(),
+        time_local: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        color: "#B08AC7".to_string(),
+        label: "День рождения дочки".to_string(),
+        description: "Забрать торт, купить шарики".to_string(),
+        reminder_enabled: true,
+    };
+
+    save_custom_event_ffi(db_path_str.clone(), event.clone()).unwrap();
+
+    let loaded = load_custom_events_ffi(db_path_str.clone()).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].label, "День рождения дочки");
+
+    delete_custom_event_ffi(db_path_str.clone(), event.id).unwrap();
+
+    let after_delete = load_custom_events_ffi(db_path_str).unwrap();
+    assert_eq!(after_delete.len(), 0);
 
     std::fs::remove_file(db_path).ok();
 }

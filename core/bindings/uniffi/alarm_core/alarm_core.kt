@@ -727,6 +727,16 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -742,14 +752,24 @@ internal interface UniffiLib : Library {
         
     }
 
+    fun uniffi_alarm_core_fn_func_delete_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_delete_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_load_custom_events_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_load_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_work_schedules_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_resolve_timezone_alarm_ffi(`inputTime`: RustBuffer.ByValue,`referenceDate`: RustBuffer.ByValue,`sourceTzName`: RustBuffer.ByValue,`deviceTzName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_save_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_save_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`overrides`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_save_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`schedule`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_set_active_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -870,13 +890,23 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_alarm_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_checksum_func_delete_custom_event_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_delete_work_schedule_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi(
     ): Short
+    fun uniffi_alarm_core_checksum_func_load_custom_events_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_load_day_overrides_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_load_work_schedules_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_resolve_timezone_alarm_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_save_custom_event_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_save_day_overrides_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_work_schedule_ffi(
     ): Short
@@ -903,16 +933,31 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_alarm_core_checksum_func_delete_custom_event_ffi() != 13931.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_delete_work_schedule_ffi() != 16715.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi() != 59704.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_alarm_core_checksum_func_load_custom_events_ffi() != 6975.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_load_day_overrides_ffi() != 53290.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_load_work_schedules_ffi() != 49504.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_resolve_timezone_alarm_ffi() != 9939.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_save_custom_event_ffi() != 412.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_save_day_overrides_ffi() != 46331.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_work_schedule_ffi() != 30008.toShort()) {
@@ -1216,6 +1261,100 @@ public object FfiConverterTypeAlarmRule: FfiConverterRustBuffer<AlarmRule> {
             FfiConverterInt.write(value.`offsetMinutes`, buf)
             FfiConverterString.write(value.`ringtoneId`, buf)
             FfiConverterBoolean.write(value.`vibration`, buf)
+    }
+}
+
+
+
+/**
+ * Разовое событие с будильником на конкретную дату — не привязано ни к
+ * одному графику работы (может выпасть и на выходной, где графика нет
+ * вообще). Например, день рождения — свой цвет, своя подпись, своё время.
+ */
+data class CustomEvent (
+    var `id`: Uuid, 
+    var `date`: NaiveDate, 
+    var `timeLocal`: NaiveTime, 
+    var `color`: kotlin.String, 
+    var `label`: kotlin.String, 
+    var `description`: kotlin.String, 
+    var `reminderEnabled`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCustomEvent: FfiConverterRustBuffer<CustomEvent> {
+    override fun read(buf: ByteBuffer): CustomEvent {
+        return CustomEvent(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterTypeNaiveTime.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CustomEvent) = (
+            FfiConverterTypeUuid.allocationSize(value.`id`) +
+            FfiConverterTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`) +
+            FfiConverterString.allocationSize(value.`color`) +
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterString.allocationSize(value.`description`) +
+            FfiConverterBoolean.allocationSize(value.`reminderEnabled`)
+    )
+
+    override fun write(value: CustomEvent, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`id`, buf)
+            FfiConverterTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
+            FfiConverterString.write(value.`color`, buf)
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterString.write(value.`description`, buf)
+            FfiConverterBoolean.write(value.`reminderEnabled`, buf)
+    }
+}
+
+
+
+/**
+ * Точечное переопределение конкретной даты поверх обычного паттерна графика —
+ * например "сегодня выходной по факту, хотя по графику рабочий день" или
+ * наоборот. Хранится отдельно от WorkSchedule, привязано к конкретному дню.
+ */
+data class DayOverride (
+    var `date`: NaiveDate, 
+    var `isWork`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDayOverride: FfiConverterRustBuffer<DayOverride> {
+    override fun read(buf: ByteBuffer): DayOverride {
+        return DayOverride(
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DayOverride) = (
+            FfiConverterTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterBoolean.allocationSize(value.`isWork`)
+    )
+
+    override fun write(value: DayOverride, buf: ByteBuffer) {
+            FfiConverterTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterBoolean.write(value.`isWork`, buf)
     }
 }
 
@@ -1720,6 +1859,62 @@ public object FfiConverterSequenceTypeAlarmRule: FfiConverterRustBuffer<List<Ala
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCustomEvent: FfiConverterRustBuffer<List<CustomEvent>> {
+    override fun read(buf: ByteBuffer): List<CustomEvent> {
+        val len = buf.getInt()
+        return List<CustomEvent>(len) {
+            FfiConverterTypeCustomEvent.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CustomEvent>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCustomEvent.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CustomEvent>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCustomEvent.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDayOverride: FfiConverterRustBuffer<List<DayOverride>> {
+    override fun read(buf: ByteBuffer): List<DayOverride> {
+        val len = buf.getInt()
+        return List<DayOverride>(len) {
+            FfiConverterTypeDayOverride.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DayOverride>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDayOverride.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DayOverride>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDayOverride.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeWorkSchedule: FfiConverterRustBuffer<List<WorkSchedule>> {
     override fun read(buf: ByteBuffer): List<WorkSchedule> {
         val len = buf.getInt()
@@ -1800,6 +1995,18 @@ public typealias FfiConverterTypeNaiveTime = FfiConverterString
 public typealias Uuid = kotlin.String
 public typealias FfiConverterTypeUuid = FfiConverterString
         /**
+         * Удаляет событие по id.
+         */
+    @Throws(AlarmCoreException::class) fun `deleteCustomEventFfi`(`dbPath`: kotlin.String, `eventId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_custom_event_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`eventId`),_status)
+}
+    
+    
+
+        /**
          * FFI-обёртка: открывает БД, удаляет график по id (вместе со всеми его
          * инстансами благодаря ON DELETE — см. ниже), закрывает соединение.
          */
@@ -1822,6 +2029,32 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Загружает все сохранённые события.
+         */
+    @Throws(AlarmCoreException::class) fun `loadCustomEventsFfi`(`dbPath`: kotlin.String): List<CustomEvent> {
+            return FfiConverterSequenceTypeCustomEvent.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_custom_events_ffi(
+        FfiConverterString.lower(`dbPath`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Загружает все overrides конкретного графика.
+         */
+    @Throws(AlarmCoreException::class) fun `loadDayOverridesFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid): List<DayOverride> {
+            return FfiConverterSequenceTypeDayOverride.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_day_overrides_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
 }
     )
     }
@@ -1852,6 +2085,32 @@ public typealias FfiConverterTypeUuid = FfiConverterString
 }
     )
     }
+    
+
+        /**
+         * Сохраняет новое или обновлённое событие (UPSERT по id).
+         */
+    @Throws(AlarmCoreException::class) fun `saveCustomEventFfi`(`dbPath`: kotlin.String, `event`: CustomEvent)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_custom_event_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeCustomEvent.lower(`event`),_status)
+}
+    
+    
+
+        /**
+         * Полностью заменяет overrides графика на переданный набор — удаляет
+         * старые и записывает новые одной транзакцией. Простая и предсказуемая
+         * семантика: "вот актуальный список overrides на сейчас", а не накопление.
+         */
+    @Throws(AlarmCoreException::class) fun `saveDayOverridesFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid, `overrides`: List<DayOverride>)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_day_overrides_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),FfiConverterSequenceTypeDayOverride.lower(`overrides`),_status)
+}
+    
     
 
         /**

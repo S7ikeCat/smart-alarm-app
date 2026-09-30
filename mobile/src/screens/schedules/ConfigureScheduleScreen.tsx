@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
@@ -10,7 +10,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { SchedulesStackParamList } from '../../navigation/types';
-import { saveWorkSchedule, NativeWorkSchedule } from '../../native/alarmCore';
+import { saveWorkSchedule, saveDayOverrides, loadDayOverrides, NativeWorkSchedule } from '../../native/alarmCore';
 
 type Route = RouteProp<SchedulesStackParamList, 'ConfigureSchedule'>;
 type Navigation = NativeStackNavigationProp<SchedulesStackParamList, 'ConfigureSchedule'>;
@@ -53,6 +53,10 @@ function formatOffset(minutes: number) {
   return Number.isInteger(hours) ? `${hours} ч` : `${Math.floor(hours)} ч ${minutes % 60} мин`;
 }
 
+function serializeOverrides(o: Record<string, DayOverride>) {
+  return JSON.stringify(Object.keys(o).sort().map(key => [key, o[key]]));
+}
+
 export function ConfigureScheduleScreen() {
   const route = useRoute<Route>();
   const navigation = useNavigation<Navigation>();
@@ -65,6 +69,34 @@ export function ConfigureScheduleScreen() {
   );
   const [visibleMonth, setVisibleMonth] = useState(new Date());
   const [overrides, setOverrides] = useState<Record<string, DayOverride>>({});
+
+  // При редактировании существующего графика подгружаем его сохранённые
+  // overrides — до этого момента экран не знал о них ничего, начинал с пустого.
+  useEffect(() => {
+    if (!existingSchedule) return;
+  
+    loadDayOverrides(existingSchedule.id).then(loaded => {
+      const asRecord: Record<string, DayOverride> = {};
+      for (const o of loaded) {
+        const [year, month, day] = o.date.split('-').map(Number);
+        const key = `${year}-${month}-${day}`;
+        asRecord[key] = o.isWork ? 'work' : 'rest';
+      }
+      setOverrides(asRecord);
+  
+      // Overrides подгружаются асинхронно, уже после того как initialSignatureRef
+      // зафиксировал снимок "на момент открытия" (тогда overrides ещё были {}).
+      // Обновляем снимок сейчас, чтобы дальнейшее сравнение hasChanges было
+      // честным относительно реально загруженных overrides, а не пустоты.
+      initialSignatureRef.current = JSON.stringify({
+        name: existingSchedule.name,
+        color: existingSchedule.color,
+        shiftStartTime: existingSchedule.shiftStartTime.slice(0, 5),
+        alarmOffsets: [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a),
+        overrides: serializeOverrides(asRecord),
+      });
+    });
+  }, [existingSchedule]);
 
   // Время начала смены. При редактировании — из сохранённого графика
   // (строка "HH:MM:SS"), иначе по умолчанию 08:00.
@@ -91,21 +123,30 @@ export function ConfigureScheduleScreen() {
   // При создании нового — по умолчанию выравниваем цикл так, чтобы первый
   // день паттерна попал на понедельник (обычная пятидневка Пн-Пт).
   const [startOffset, setStartOffset] = useState(() => {
-    if (existingSchedule) return 0;
-    const todayWeekday = (new Date().getDay() + 6) % 7; // Пн=0 ... Вс=6
+    const todayDate = startOfDay(new Date());
+  
+    if (existingSchedule) {
+      // Переводим сохранённую дату старта в "сдвиг от сегодня", который даёт
+      // ТУ ЖЕ фазу паттерна (какие дни рабочие) — чтобы при открытии на
+      // редактирование календарь выглядел ровно так же, как был сохранён,
+      // а степпер при этом честно отталкивался от реального "сегодня".
+      const [year, month, day] = existingSchedule.startDate.split('-').map(Number);
+      const storedDate = new Date(year, month - 1, day);
+      const rawDiff = Math.round((storedDate.getTime() - todayDate.getTime()) / 86400000);
+      const cycleLen = pattern.length;
+      return ((rawDiff % cycleLen) + cycleLen) % cycleLen;
+    }
+  
+    const todayWeekday = (todayDate.getDay() + 6) % 7; // Пн=0 ... Вс=6
     const daysUntilMonday = (7 - todayWeekday) % 7;
     return daysUntilMonday % pattern.length;
   });
-
-  const startDate = useMemo(() => {
-    if (existingSchedule) {
-      const [year, month, day] = existingSchedule.startDate.split('-').map(Number);
-      return new Date(year, month - 1, day);
-    }
-    return startOfDay(addDays(new Date(), startOffset));
-  }, [startOffset, existingSchedule]);
+  
+  const startDate = useMemo(() => startOfDay(addDays(new Date(), startOffset)), [startOffset]);
 
   const monthWeeks = useMemo(() => chunkIntoWeeks(buildMonthGrid(visibleMonth)), [visibleMonth]);
+
+  const today = useMemo(() => startOfDay(new Date()), []);
 
   // Снимок исходного состояния — чтобы понимать, реально ли пользователь
   // что-то поменял. Фиксируется один раз при открытии экрана.
@@ -117,18 +158,20 @@ export function ConfigureScheduleScreen() {
       alarmOffsets: existingSchedule
         ? [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a)
         : [30],
+      overrides: serializeOverrides({}),
     }),
   );
-
+  
   const hasChanges = useMemo(() => {
     const currentSignature = JSON.stringify({
       name,
       color: selectedColor,
       shiftStartTime: formatTime(shiftTime),
       alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
+      overrides: serializeOverrides(overrides),
     });
     return currentSignature !== initialSignatureRef.current;
-  }, [name, selectedColor, shiftTime, alarmOffsets]);
+  }, [name, selectedColor, shiftTime, alarmOffsets, overrides]);
 
   const showSaveButton = !isEditing || hasChanges;
 
@@ -174,13 +217,27 @@ export function ConfigureScheduleScreen() {
         ringtoneId: 'default',
         vibration: true,
       })),
-      isActive: existingSchedule?.isActive ?? true,
+      isActive: existingSchedule?.isActive ?? false,
       isPaused: existingSchedule?.isPaused ?? false,
     };
 
     try {
       await saveWorkSchedule(nativeSchedule);
-      navigation.popToTop();
+    
+      const overridesList = Object.entries(overrides).map(([key, value]) => {
+        const [year, month, day] = key.split('-').map(Number);
+        return {
+          date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+          isWork: value === 'work',
+        };
+      });
+      await saveDayOverrides(nativeSchedule.id, overridesList);
+    
+      if (isEditing) {
+        navigation.popToTop();
+      } else {
+        navigation.navigate('SchedulesList', { justCreatedId: nativeSchedule.id });
+      }
     } catch (error) {
       Alert.alert('Не удалось сохранить график', String(error));
     }
@@ -327,8 +384,8 @@ export function ConfigureScheduleScreen() {
                 const override = overrides[key];
                 const patternIsWork = isWorkDayByPattern(day, startDate, pattern);
                 const effectiveIsWork = override ? override === 'work' : patternIsWork;
-                const isStart = isSameDay(day, startDate);
-                const hasOverride = override !== undefined;
+                const isToday = isSameDay(day, today);
+                const hasOverride = override !== undefined; 
 
                 return (
                   <Pressable
@@ -341,7 +398,7 @@ export function ConfigureScheduleScreen() {
                       style={[
                         styles.dayCircle,
                         inCurrentMonth && effectiveIsWork && styles.dayCircleWork,
-                        inCurrentMonth && isStart && styles.dayCircleStart,
+                        inCurrentMonth && isToday && styles.dayCircleStart,
                         inCurrentMonth && hasOverride && styles.dayCircleOverride,
                       ]}
                     >
@@ -371,6 +428,7 @@ export function ConfigureScheduleScreen() {
             <View style={[styles.legendDot, styles.legendDotOverride]} />
             <Text style={styles.legendText}>Изменено вручную</Text>
           </View>
+          
         </View>
       </View>
 
@@ -451,7 +509,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   calendarMonthLabel: { ...typography.body, color: colors.textPrimary, textTransform: 'capitalize' },
   weekdaysRow: { flexDirection: 'row' },
@@ -465,9 +523,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dayCircleWork: { backgroundColor: colors.accent },
-  dayCircleStart: { borderWidth: 2, borderColor: colors.textPrimary },
-  dayCircleOverride: { borderWidth: 2, borderColor: colors.accentSecondary },
+  dayCircleWork: { backgroundColor: colors.accent, borderRadius: 999 },
+  dayCircleStart: { borderWidth: 2, borderColor: colors.textPrimary, borderRadius: 999 },
+  dayCircleOverride: { borderWidth: 2, borderColor: colors.accentSecondary, borderRadius: 999 },
+  todayDot: {
+    position: 'absolute',
+    bottom: 2,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+  },
   dayNumber: { ...typography.caption, color: colors.textSecondary },
   dayNumberMuted: { color: colors.border },
   dayNumberWork: { color: colors.background, fontWeight: '600' },

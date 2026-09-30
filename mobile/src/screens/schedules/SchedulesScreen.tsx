@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Alert, BackHandler } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Plus, Trash2, Check, Circle, CircleDot } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
@@ -17,11 +17,17 @@ function patternLabel(pattern: boolean[]) {
   return `${workCount}/${restCount} за ${pattern.length} дн.`;
 }
 
+type Route = RouteProp<SchedulesStackParamList, 'SchedulesList'>;
+
 export function SchedulesScreen() {
   const navigation = useNavigation<Navigation>();
+  const route = useRoute<Route>();
   const [schedules, setSchedules] = useState<NativeWorkSchedule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processedHighlightIdRef = useRef<string | null>(null);
   const isSelectionMode = selectedIds.size > 0;
 
   useFocusEffect(
@@ -43,6 +49,34 @@ export function SchedulesScreen() {
       };
     }, []),
   );
+
+    // Подсвечиваем только что созданный график на 5 секунд — визуальное
+  // подтверждение "вот он, появился", раз он больше не становится активным
+  // автоматически (это могло бы выглядеть как "ничего не произошло").
+  useFocusEffect(
+    useCallback(() => {
+      const justCreatedId = route.params?.justCreatedId;
+      // Реагируем только на НОВЫЙ id, а не на каждое изменение параметра —
+      // иначе наш же navigation.setParams(undefined) ниже пересоздаёт эту
+      // функцию, эффект перезапускается, и таймер отменяется до истечения.
+      if (justCreatedId && justCreatedId !== processedHighlightIdRef.current) {
+        processedHighlightIdRef.current = justCreatedId;
+        setHighlightedId(justCreatedId);
+        navigation.setParams({ justCreatedId: undefined });
+  
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => setHighlightedId(null), 3000);
+      }
+    }, [route.params?.justCreatedId, navigation]),
+  );
+  
+  // Отдельная, независимая от фокуса очистка таймера — только на реальное
+  // размонтирование экрана, не на каждый перерендер.
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, []);
 
   // Кнопка "назад" сначала отменяет режим выбора, а не сразу уводит с экрана —
   // так пользователь может передумать удалять, не теряя контекст.
@@ -89,6 +123,11 @@ export function SchedulesScreen() {
   }
 
   function handlePress(schedule: NativeWorkSchedule) {
+    if (highlightedId === schedule.id) {
+      setHighlightedId(null);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    }
+  
     if (isSelectionMode) {
       toggleSelection(schedule.id);
       return;
@@ -155,6 +194,7 @@ export function SchedulesScreen() {
                 styles.card,
                 !item.isActive && !isSelected && styles.cardInactive,
                 isSelected && styles.cardSelected,
+                item.id === highlightedId && styles.cardHighlighted,
               ]}
               onLongPress={() => handleLongPress(item.id)}
               onPress={() => handlePress(item)}
@@ -217,6 +257,7 @@ const styles = StyleSheet.create({
   },
   cardInactive: { opacity: 0.6 },
   cardSelected: { borderColor: colors.accent },
+  cardHighlighted: { borderColor: colors.restAccent },
   checkbox: {
     width: 22,
     height: 22,

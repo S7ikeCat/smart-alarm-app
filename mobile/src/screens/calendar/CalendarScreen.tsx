@@ -1,12 +1,22 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { Sofa, AlarmClock } from 'lucide-react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable, BackHandler, Alert } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { CalendarStackParamList } from '../../navigation/types';
+import { Sofa, AlarmClock, Plus, Trash2, Check } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, useResponsiveScale } from '../../theme/spacing';
-import { loadWorkSchedules, generateUpcomingAlarms, NativeWorkSchedule, NativeAlarmInstance } from '../../native/alarmCore';
-import { isWorkDayByPattern, startOfDay, addDays } from '../../utils/scheduleCalendar';
+import {
+  loadWorkSchedules,
+  generateUpcomingAlarms,
+  loadCustomEvents,
+  deleteCustomEvent,
+  NativeWorkSchedule,
+  NativeAlarmInstance,
+  NativeCustomEvent,
+} from '../../native/alarmCore';
+import { startOfDay, addDays } from '../../utils/scheduleCalendar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const DAYS_TO_SHOW = 7;
@@ -17,15 +27,11 @@ type DayRow = {
   date: Date;
   isWork: boolean;
   time: string | null;
+  event: NativeCustomEvent | null;
 };
 
 function dateKey(d: Date) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-}
-
-function parseIsoDate(iso: string) {
-  const [year, month, day] = iso.split('-').map(Number);
-  return new Date(year, month - 1, day);
 }
 
 function formatDayLabel(date: Date, today: Date) {
@@ -55,7 +61,10 @@ function formatClock(date: Date) {
   return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
+type Navigation = NativeStackNavigationProp<CalendarStackParamList, 'CalendarMain'>;
+
 export function CalendarScreen() {
+  const navigation = useNavigation<Navigation>();
   const scale = useResponsiveScale();
   const insets = useSafeAreaInsets();
   const [activeSchedule, setActiveSchedule] = useState<NativeWorkSchedule | null>(null);
@@ -63,10 +72,73 @@ export function CalendarScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [listAreaHeight, setListAreaHeight] = useState(0);
   const [now, setNow] = useState(new Date());
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+  const isSelectionMode = selectedEventIds.size > 0;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  const loadCalendarData = useCallback(async () => {
+    const [schedules, alarms, events] = await Promise.all([
+      loadWorkSchedules(),
+      generateUpcomingAlarms(2),
+      loadCustomEvents(),
+    ]);
+
+    const active = schedules.find(s => s.isActive) ?? null;
+    setActiveSchedule(active);
+
+    if (!active) {
+      setDays([]);
+      return;
+    }
+
+    const earliestByDate = new Map<string, NativeAlarmInstance>();
+    for (const instance of alarms) {
+      const key = instance.date;
+      const existing = earliestByDate.get(key);
+      if (!existing || instance.timeLocal < existing.timeLocal) {
+        earliestByDate.set(key, instance);
+      }
+    }
+
+    const eventByDate = new Map<string, NativeCustomEvent>();
+    for (const event of events) {
+      eventByDate.set(event.date, event);
+    }
+
+    const today = startOfDay(new Date());
+    const rows: DayRow[] = [];
+
+    for (let i = 0; i < DAYS_TO_SHOW; i++) {
+      const day = addDays(today, i);
+      const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+      const matchedAlarm = earliestByDate.get(key);
+      const matchedEvent = eventByDate.get(key) ?? null;
+
+      // "Симбиоз": если день рабочий — время смены остаётся главным (событие
+      // видно точкой рядом). Если день выходной, но есть событие со своим
+      // напоминанием — показываем ВРЕМЯ СОБЫТИЯ вместо пустого диванчика,
+      // а не два раздельных "числа" для одного и того же дня.
+      const eventHasReminder = matchedEvent?.reminderEnabled ?? false;
+      const isWork = matchedAlarm !== undefined || (matchedEvent !== null && eventHasReminder);
+      const time = matchedAlarm
+        ? matchedAlarm.timeLocal.slice(0, 5)
+        : matchedEvent && eventHasReminder
+        ? matchedEvent.timeLocal.slice(0, 5)
+        : null;
+
+      rows.push({
+        date: day,
+        isWork,
+        time,
+        event: matchedEvent,
+      });
+    }
+
+    setDays(rows);
   }, []);
 
   useFocusEffect(
@@ -74,59 +146,72 @@ export function CalendarScreen() {
       let cancelled = false;
       setIsLoading(true);
 
-      async function load() {
-        const [schedules, alarms] = await Promise.all([
-          loadWorkSchedules(),
-          generateUpcomingAlarms(2),
-        ]);
-        if (cancelled) return;
-
-        const active = schedules.find(s => s.isActive) ?? null;
-        setActiveSchedule(active);
-
-        if (!active) {
-          setDays([]);
-          return;
-        }
-
-        const earliestByDate = new Map<string, NativeAlarmInstance>();
-        for (const instance of alarms) {
-          const key = instance.date;
-          const existing = earliestByDate.get(key);
-          if (!existing || instance.timeLocal < existing.timeLocal) {
-            earliestByDate.set(key, instance);
-          }
-        }
-
-        const scheduleStart = parseIsoDate(active.startDate);
-        const today = startOfDay(new Date());
-        const rows: DayRow[] = [];
-
-        for (let i = 0; i < DAYS_TO_SHOW; i++) {
-          const day = addDays(today, i);
-          const isWork = isWorkDayByPattern(day, scheduleStart, active.pattern);
-          const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-          const matchedAlarm = earliestByDate.get(key);
-
-          rows.push({
-            date: day,
-            isWork,
-            time: matchedAlarm ? matchedAlarm.timeLocal.slice(0, 5) : null,
-          });
-        }
-
-        setDays(rows);
-      }
-
-      load().finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+      loadCalendarData()
+        .catch(error => console.log('Не удалось загрузить календарь:', error))
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
 
       return () => {
         cancelled = true;
       };
-    }, []),
+    }, [loadCalendarData]),
   );
+
+  // Кнопка "назад" сначала снимает выделение событий, а не сразу уводит
+  // с экрана — тот же паттерн, что и на экране "Графики".
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (isSelectionMode) {
+          setSelectedEventIds(new Set());
+          return true;
+        }
+        return false;
+      };
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }, [isSelectionMode]),
+  );
+
+  function toggleEventSelection(id: string) {
+    setSelectedEventIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleLongPressRow(item: DayRow) {
+    if (!item.event) return; // нечего выделять — на этот день нет события
+    if (!isSelectionMode) {
+      setSelectedEventIds(new Set([item.event.id]));
+    }
+  }
+
+  function handlePressRow(item: DayRow) {
+    if (!item.event) return; // строки без события не реагируют на тап вообще
+    if (isSelectionMode) {
+      toggleEventSelection(item.event.id);
+    } else {
+      navigation.navigate('AddEvent', { existingEvent: item.event });
+    }
+  }
+
+  async function handleDeleteSelected() {
+    const idsToDelete = Array.from(selectedEventIds);
+    try {
+      await Promise.all(idsToDelete.map(id => deleteCustomEvent(id)));
+      setSelectedEventIds(new Set());
+      await loadCalendarData();
+    } catch (error) {
+      Alert.alert('Не удалось удалить события', String(error));
+    }
+  }
 
   if (isLoading && !activeSchedule) {
     return (
@@ -135,7 +220,7 @@ export function CalendarScreen() {
       </View>
     );
   }
-  
+
   if (!activeSchedule) {
     return (
       <View style={[styles.container, styles.centered]}>
@@ -150,15 +235,15 @@ export function CalendarScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.hero}>
-      <AlarmClock color={colors.accent} size={26} style={styles.heroIcon} />
-      <Text style={styles.greeting}>{getGreeting(new Date().getHours())}</Text>
-      <Text style={styles.dateCaption}>{formatTodayDate(new Date())}</Text>
+        <AlarmClock color={colors.accent} size={26} style={styles.heroIcon} />
+        <Text style={styles.greeting}>{getGreeting(new Date().getHours())}</Text>
+        <Text style={styles.dateCaption}>{formatTodayDate(new Date())}</Text>
 
-            {todayRow?.isWork ? (
-        <Text style={[styles.time, { fontSize: typography.displayLarge.fontSize * scale }]}>
-          {formatClock(now)}
-        </Text>
-      ) : (
+        {todayRow?.isWork ? (
+          <Text style={[styles.time, { fontSize: typography.displayLarge.fontSize * scale }]}>
+            {formatClock(now)}
+          </Text>
+        ) : (
           <>
             <Sofa color={colors.restAccent} size={44} />
             <Text style={styles.restHeroTitle}>Сегодня твой день</Text>
@@ -181,18 +266,58 @@ export function CalendarScreen() {
               ? Math.max(MIN_ROW_HEIGHT, Math.floor(availableForRows / DAYS_TO_SHOW))
               : MIN_ROW_HEIGHT;
 
+          const isSelectable = item.event !== null;
+          const isSelected = item.event ? selectedEventIds.has(item.event.id) : false;
+          // В режиме выбора строки без события визуально "выключены" —
+          // сразу видно, что их нельзя выделить, удалять там нечего.
+          const isDimmedForSelection = isSelectionMode && !isSelectable;
+
           return (
-            <View style={[styles.row, !item.isWork && styles.rowRest, { height: rowHeight }]}>
-              <Text style={styles.rowDay}>{formatDayLabel(item.date, days[0].date)}</Text>
-              {item.isWork ? (
-                <Text style={styles.rowTime}>{item.time ?? '—'}</Text>
-              ) : (
-                <Sofa color={colors.restAccent} size={22} />
-        )}
-      </View>
-    );
-  }}
-/>
+            <Pressable
+              onLongPress={() => handleLongPressRow(item)}
+              onPress={() => handlePressRow(item)}
+              disabled={isSelectionMode && !isSelectable}
+            >
+              <View
+                style={[
+                  styles.row,
+                  !item.isWork && styles.rowRest,
+                  { height: rowHeight },
+                  isSelected && styles.rowSelected,
+                  isDimmedForSelection && styles.rowDimmed,
+                ]}
+              >
+                <View style={styles.rowLeft}>
+                  {isSelectionMode && isSelectable && (
+                    <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
+                      {isSelected && <Check color={colors.background} size={14} />}
+                    </View>
+                  )}
+                  {item.event && (
+                    <View style={[styles.eventDot, { backgroundColor: item.event.color }]} />
+                  )}
+                  <Text style={styles.rowDay}>{formatDayLabel(item.date, days[0].date)}</Text>
+                </View>
+                {item.isWork ? (
+                  <Text style={styles.rowTime}>{item.time ?? '—'}</Text>
+                ) : (
+                  <Sofa color={colors.restAccent} size={22} />
+                )}
+              </View>
+            </Pressable>
+          );
+        }}
+      />
+
+      {isSelectionMode ? (
+        <Pressable style={[styles.fab, styles.fabDanger]} onPress={handleDeleteSelected}>
+          <Trash2 color={colors.textPrimary} size={24} />
+        </Pressable>
+      ) : (
+        <Pressable style={styles.fab} onPress={() => navigation.navigate('AddEvent')}>
+          <Plus color={colors.background} size={26} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -256,10 +381,30 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   rowRest: {
     opacity: 0.85,
   },
+  rowSelected: {
+    borderColor: colors.accent,
+  },
+  rowDimmed: {
+    opacity: 0.3,
+  },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.textSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: { backgroundColor: colors.accent, borderColor: colors.accent },
+  eventDot: { width: 8, height: 8, borderRadius: 4 },
   rowDay: {
     ...typography.body,
     color: colors.textPrimary,
@@ -269,4 +414,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: colors.textPrimary,
   },
+  fab: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  fabDanger: { backgroundColor: '#C0453A' },
 });

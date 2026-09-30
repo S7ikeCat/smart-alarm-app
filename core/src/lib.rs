@@ -57,6 +57,29 @@ pub struct WorkSchedule {
     pub is_paused: bool,
 }
 
+/// Точечное переопределение конкретной даты поверх обычного паттерна графика —
+/// например "сегодня выходной по факту, хотя по графику рабочий день" или
+/// наоборот. Хранится отдельно от WorkSchedule, привязано к конкретному дню.
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct DayOverride {
+    pub date: NaiveDate,
+    pub is_work: bool,
+}
+
+/// Разовое событие с будильником на конкретную дату — не привязано ни к
+/// одному графику работы (может выпасть и на выходной, где графика нет
+/// вообще). Например, день рождения — свой цвет, своя подпись, своё время.
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct CustomEvent {
+    pub id: Uuid,
+    pub date: NaiveDate,
+    pub time_local: NaiveTime,
+    pub color: String,
+    pub label: String,
+    pub description: String,
+    pub reminder_enabled: bool,
+}
+
 /// Статус конкретного экземпляра будильника на конкретную дату.
 /// Разница Active/SkippedByUser — это и есть механика "отключить,
 /// но не удалить", которую ты просил в самом начале.
@@ -82,7 +105,7 @@ pub enum AlarmOrigin {
 #[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct AlarmInstance {
     pub id: Uuid,
-    pub schedule_id: Uuid, // ссылка на WorkSchedule, который его породил
+    pub schedule_id: Uuid,
     pub date: NaiveDate,
     pub time_local: NaiveTime,
     pub status: InstanceStatus,

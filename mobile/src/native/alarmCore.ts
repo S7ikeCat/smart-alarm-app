@@ -73,3 +73,49 @@ export async function generateUpcomingAlarms(
   const json: string = await AlarmCore.generateUpcomingAlarmsJson(horizonMonths);
   return JSON.parse(json);
 }
+
+export type NativeDayOverride = {
+  date: string; // "YYYY-MM-DD"
+  isWork: boolean;
+};
+
+/**
+ * Полностью заменяет overrides конкретного графика на переданный набор.
+ */
+export function saveDayOverrides(
+  scheduleId: string,
+  overrides: NativeDayOverride[],
+): Promise<void> {
+  return AlarmCore.saveDayOverridesJson(scheduleId, JSON.stringify(overrides));
+}
+
+/**
+ * Загружает все overrides конкретного графика.
+ */
+export async function loadDayOverrides(scheduleId: string): Promise<NativeDayOverride[]> {
+  const json: string = await AlarmCore.loadDayOverridesJson(scheduleId);
+  return JSON.parse(json);
+}
+
+export type NativeCustomEvent = {
+  id: string;
+  date: string; // "YYYY-MM-DD"
+  timeLocal: string; // "HH:MM:SS"
+  color: string;
+  label: string;
+  description: string;
+  reminderEnabled: boolean;
+};
+
+export function saveCustomEvent(event: NativeCustomEvent): Promise<void> {
+  return AlarmCore.saveCustomEventJson(JSON.stringify(event));
+}
+
+export async function loadCustomEvents(): Promise<NativeCustomEvent[]> {
+  const json: string = await AlarmCore.loadCustomEventsJson();
+  return JSON.parse(json);
+}
+
+export function deleteCustomEvent(eventId: string): Promise<void> {
+  return AlarmCore.deleteCustomEvent(eventId);
+}

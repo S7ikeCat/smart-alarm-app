@@ -177,4 +177,94 @@ class AlarmCoreModule(reactContext: ReactApplicationContext) :
             promise.reject("GENERATE_ERROR", e.message, e)
         }
     }
+    
+    @ReactMethod
+fun saveDayOverridesJson(scheduleId: String, overridesJson: String, promise: Promise) {
+    try {
+        val array = JSONArray(overridesJson)
+        val overrides = mutableListOf<DayOverride>()
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            overrides.add(
+                DayOverride(
+                    date = obj.getString("date"),
+                    isWork = obj.getBoolean("isWork"),
+                )
+            )
+        }
+        saveDayOverridesFfi(dbPath(), scheduleId, overrides)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("SAVE_OVERRIDES_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun loadDayOverridesJson(scheduleId: String, promise: Promise) {
+    try {
+        val overrides = loadDayOverridesFfi(dbPath(), scheduleId)
+        val array = JSONArray()
+        for (o in overrides) {
+            val obj = JSONObject()
+            obj.put("date", o.date)
+            obj.put("isWork", o.isWork)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("LOAD_OVERRIDES_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun saveCustomEventJson(eventJson: String, promise: Promise) {
+    try {
+        val obj = JSONObject(eventJson)
+        val event = CustomEvent(
+            id = obj.getString("id"),
+            date = obj.getString("date"),
+            timeLocal = obj.getString("timeLocal"),
+            color = obj.getString("color"),
+            label = obj.getString("label"),
+            description = obj.optString("description", ""),
+            reminderEnabled = obj.optBoolean("reminderEnabled", true),
+        )
+        saveCustomEventFfi(dbPath(), event)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("SAVE_EVENT_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun loadCustomEventsJson(promise: Promise) {
+    try {
+        val events = loadCustomEventsFfi(dbPath())
+        val array = JSONArray()
+        for (ev in events) {
+            val obj = JSONObject()
+            obj.put("id", ev.id)
+            obj.put("date", ev.date)
+            obj.put("timeLocal", ev.timeLocal)
+            obj.put("color", ev.color)
+            obj.put("label", ev.label)
+            obj.put("description", ev.description)
+            obj.put("reminderEnabled", ev.reminderEnabled)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("LOAD_EVENTS_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun deleteCustomEvent(eventId: String, promise: Promise) {
+    try {
+        deleteCustomEventFfi(dbPath(), eventId)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("DELETE_EVENT_ERROR", e.message, e)
+    }
+}
 }

@@ -1,7 +1,7 @@
 import type { NativeWorkSchedule } from '../native/alarmCore';
 
 export type SchedulesStackParamList = {
-  SchedulesList: undefined;
+  SchedulesList: { justCreatedId?: string } | undefined;
   CreateSchedule: undefined;
   CustomPattern: undefined;
   ConfigureSchedule: {
@@ -17,4 +17,11 @@ export type RootTabParamList = {
   Schedules: undefined;
   Tools: undefined;
   Settings: undefined;
+};
+
+import type { NativeCustomEvent } from '../native/alarmCore';
+
+export type CalendarStackParamList = {
+  CalendarMain: undefined;
+  AddEvent: { existingEvent?: NativeCustomEvent } | undefined;
 };

@@ -3,22 +3,22 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { RootTabParamList, SchedulesStackParamList } from './types';
+import { RootTabParamList, SchedulesStackParamList, CalendarStackParamList } from './types';
 import { CalendarScreen } from '../screens/calendar/CalendarScreen';
+import { AddEventScreen } from '../screens/calendar/AddEventScreen';
 import { SchedulesScreen } from '../screens/schedules/SchedulesScreen';
 import { CreateScheduleScreen } from '../screens/schedules/CreateScheduleScreen';
+import { ConfigureScheduleScreen } from '../screens/schedules/ConfigureScheduleScreen';
+import { CustomPatternScreen } from '../screens/schedules/CustomPatternScreen';
 import { ToolsScreen } from '../screens/tools/ToolsScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { colors } from '../theme/colors';
 
 import { Calendar, CalendarRange, Timer, Settings } from 'lucide-react-native';
 
-import { ConfigureScheduleScreen } from '../screens/schedules/ConfigureScheduleScreen';
-
-import { CustomPatternScreen } from '../screens/schedules/CustomPatternScreen';
-
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const SchedulesStack = createNativeStackNavigator<SchedulesStackParamList>();
+const CalendarStack = createNativeStackNavigator<CalendarStackParamList>();
 
 function SchedulesStackNavigator() {
   return (
@@ -49,8 +49,32 @@ function SchedulesStackNavigator() {
         name="ConfigureSchedule"
         component={ConfigureScheduleScreen}
         options={{ title: 'Настройка графика' }}
-/>
+      />
     </SchedulesStack.Navigator>
+  );
+}
+
+function CalendarStackNavigator() {
+  return (
+    <CalendarStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.textPrimary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <CalendarStack.Screen
+        name="CalendarMain"
+        component={CalendarScreen}
+        options={{ headerShown: false }}
+      />
+      <CalendarStack.Screen
+        name="AddEvent"
+        component={AddEventScreen}
+        options={{ title: 'Новое событие' }}
+      />
+    </CalendarStack.Navigator>
   );
 }
 
@@ -58,8 +82,8 @@ export function RootNavigator() {
   return (
     <NavigationContainer>
       <Tab.Navigator
-      screenOptions={{
-      sceneStyle: { backgroundColor: colors.background },
+        screenOptions={{
+          sceneStyle: { backgroundColor: colors.background },
           headerShown: false,
           tabBarActiveTintColor: colors.accent,
           tabBarInactiveTintColor: colors.textSecondary,
@@ -70,37 +94,37 @@ export function RootNavigator() {
         }}
       >
         <Tab.Screen
-  name="Calendar"
-  component={CalendarScreen}
-  options={{
-    title: 'Календарь',
-    tabBarIcon: ({ color, size }) => <Calendar color={color} size={size} />,
-  }}
-/>
-<Tab.Screen
-  name="Schedules"
-  component={SchedulesStackNavigator}
-  options={{
-    title: 'Графики',
-    tabBarIcon: ({ color, size }) => <CalendarRange color={color} size={size} />,
-  }}
-/>
-<Tab.Screen
-  name="Tools"
-  component={ToolsScreen}
-  options={{
-    title: 'Инструменты',
-    tabBarIcon: ({ color, size }) => <Timer color={color} size={size} />,
-  }}
-/>
-<Tab.Screen
-  name="Settings"
-  component={SettingsScreen}
-  options={{
-    title: 'Настройки',
-    tabBarIcon: ({ color, size }) => <Settings color={color} size={size} />,
-  }}
-/>
+          name="Calendar"
+          component={CalendarStackNavigator}
+          options={{
+            title: 'Календарь',
+            tabBarIcon: ({ color, size }) => <Calendar color={color} size={size} />,
+          }}
+        />
+        <Tab.Screen
+          name="Schedules"
+          component={SchedulesStackNavigator}
+          options={{
+            title: 'Графики',
+            tabBarIcon: ({ color, size }) => <CalendarRange color={color} size={size} />,
+          }}
+        />
+        <Tab.Screen
+          name="Tools"
+          component={ToolsScreen}
+          options={{
+            title: 'Инструменты',
+            tabBarIcon: ({ color, size }) => <Timer color={color} size={size} />,
+          }}
+        />
+        <Tab.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{
+            title: 'Настройки',
+            tabBarIcon: ({ color, size }) => <Settings color={color} size={size} />,
+          }}
+        />
       </Tab.Navigator>
     </NavigationContainer>
   );
