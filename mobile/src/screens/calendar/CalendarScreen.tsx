@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable, BackHandler, Alert } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, Pressable, BackHandler, Alert, Animated } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { CalendarStackParamList } from '../../navigation/types';
@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const DAYS_TO_SHOW = 7;
 const ROW_GAP = spacing.sm;
 const MIN_ROW_HEIGHT = 64;
+const FAB_CLEARANCE = 72; // высота кнопки (56) + отступ, чтобы список не прятался под ней
 
 type DayRow = {
   date: Date;
@@ -73,6 +74,47 @@ export function CalendarScreen() {
   const [listAreaHeight, setListAreaHeight] = useState(0);
   const [now, setNow] = useState(new Date());
   const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+
+  // Показ/скрытие кнопки "+" по НАПРАВЛЕНИЮ скролла, а не по его позиции —
+  // специально не завязываем прозрачность на сами пиксели прокрутки (это
+  // дёргалось бы на слабых телефонах), только на факт "листаем вниз/вверх".
+  // Состояние всегда бинарное: кнопка либо полностью видна, либо полностью
+  // спрятана — быстрым, но не мгновенным движением между двумя состояниями.
+  const fabAnim = useRef(new Animated.Value(1)).current;
+// Само ЦЕЛЕВОЕ значение (0 или 1), к которому анимация сейчас стремится —
+// а не флаг "видна ли она уже физически на экране".
+const fabTargetRef = useRef(1);
+const decisionAnchorYRef = useRef(0);
+// Храним саму ЗАПУЩЕННУЮ анимацию (не Value, а объект от .start()), чтобы
+// остановить её синхронно через .stop() — в отличие от Value.stopAnimation(),
+// это не требует асинхронного колбэка с нативной стороны, который иногда
+// вообще не вызывался при useNativeDriver, из-за чего кнопка немела насовсем.
+const runningAnimationRef = useRef<{ stop: () => void } | null>(null);
+
+function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
+  const currentY = e.nativeEvent.contentOffset.y;
+  const distanceFromAnchor = currentY - decisionAnchorYRef.current;
+  const THRESHOLD = 8;
+
+  const shouldHide = distanceFromAnchor > THRESHOLD && fabTargetRef.current === 1;
+  const shouldShow = distanceFromAnchor < -THRESHOLD && fabTargetRef.current === 0;
+
+  if (shouldHide || shouldShow) {
+    const nextTarget = shouldHide ? 0 : 1;
+    fabTargetRef.current = nextTarget;
+    decisionAnchorYRef.current = currentY;
+
+    runningAnimationRef.current?.stop();
+
+    const animation = Animated.timing(fabAnim, {
+      toValue: nextTarget,
+      duration: nextTarget === 0 ? 120 : 140,
+      useNativeDriver: true,
+    });
+    runningAnimationRef.current = animation;
+    animation.start();
+  }
+}
   const isSelectionMode = selectedEventIds.size > 0;
 
   useEffect(() => {
@@ -259,8 +301,10 @@ export function CalendarScreen() {
         keyExtractor={item => dateKey(item.date)}
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom }]}
         onLayout={e => setListAreaHeight(e.nativeEvent.layout.height)}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         renderItem={({ item }) => {
-          const availableForRows = listAreaHeight - insets.bottom - ROW_GAP * (DAYS_TO_SHOW - 1);
+          const availableForRows = listAreaHeight - insets.bottom - FAB_CLEARANCE - ROW_GAP * (DAYS_TO_SHOW - 1);
           const rowHeight =
             listAreaHeight > 0
               ? Math.max(MIN_ROW_HEIGHT, Math.floor(availableForRows / DAYS_TO_SHOW))
@@ -309,15 +353,33 @@ export function CalendarScreen() {
         }}
       />
 
-      {isSelectionMode ? (
-        <Pressable style={[styles.fab, styles.fabDanger]} onPress={handleDeleteSelected}>
-          <Trash2 color={colors.textPrimary} size={24} />
-        </Pressable>
-      ) : (
-        <Pressable style={styles.fab} onPress={() => navigation.navigate('AddEvent')}>
-          <Plus color={colors.background} size={26} />
-        </Pressable>
-      )}
+<Animated.View
+  style={[
+    styles.fabWrapper,
+    {
+      opacity: fabAnim,
+      transform: [
+        {
+          translateY: fabAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [80, 0], // резко "падает" вниз за пределы экрана и пропадает
+          }),
+        },
+      ],
+    },
+  ]}
+  pointerEvents={fabTargetRef.current === 1 ? 'auto' : 'none'}
+>
+  {isSelectionMode ? (
+    <Pressable style={[styles.fab, styles.fabDanger]} onPress={handleDeleteSelected}>
+      <Trash2 color={colors.textPrimary} size={24} />
+    </Pressable>
+  ) : (
+    <Pressable style={styles.fab} onPress={() => navigation.navigate('AddEvent')}>
+      <Plus color={colors.background} size={26} />
+    </Pressable>
+  )}
+</Animated.View>
     </View>
   );
 }
@@ -414,10 +476,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: colors.textPrimary,
   },
-  fab: {
+  fabWrapper: {
     position: 'absolute',
     right: spacing.lg,
     bottom: spacing.lg,
+  },
+  fab: {
     width: 56,
     height: 56,
     borderRadius: 28,

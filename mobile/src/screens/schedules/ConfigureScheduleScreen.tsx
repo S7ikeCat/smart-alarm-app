@@ -74,7 +74,7 @@ export function ConfigureScheduleScreen() {
   // overrides — до этого момента экран не знал о них ничего, начинал с пустого.
   useEffect(() => {
     if (!existingSchedule) return;
-  
+
     loadDayOverrides(existingSchedule.id).then(loaded => {
       const asRecord: Record<string, DayOverride> = {};
       for (const o of loaded) {
@@ -83,7 +83,7 @@ export function ConfigureScheduleScreen() {
         asRecord[key] = o.isWork ? 'work' : 'rest';
       }
       setOverrides(asRecord);
-  
+
       // Overrides подгружаются асинхронно, уже после того как initialSignatureRef
       // зафиксировал снимок "на момент открытия" (тогда overrides ещё были {}).
       // Обновляем снимок сейчас, чтобы дальнейшее сравнение hasChanges было
@@ -94,10 +94,10 @@ export function ConfigureScheduleScreen() {
         shiftStartTime: existingSchedule.shiftStartTime.slice(0, 5),
         alarmOffsets: [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a),
         overrides: serializeOverrides(asRecord),
+        startOffset: initialStartOffsetRef.current,
       });
     });
   }, [existingSchedule]);
-
   // Время начала смены. При редактировании — из сохранённого графика
   // (строка "HH:MM:SS"), иначе по умолчанию 08:00.
   const [shiftTime, setShiftTime] = useState(() => {
@@ -150,28 +150,32 @@ export function ConfigureScheduleScreen() {
 
   // Снимок исходного состояния — чтобы понимать, реально ли пользователь
   // что-то поменял. Фиксируется один раз при открытии экрана.
-  const initialSignatureRef = useRef(
-    JSON.stringify({
-      name: existingSchedule?.name ?? presetName,
-      color: existingSchedule?.color ?? SCHEDULE_COLORS[0],
-      shiftStartTime: existingSchedule ? existingSchedule.shiftStartTime.slice(0, 5) : '08:00',
-      alarmOffsets: existingSchedule
-        ? [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a)
-        : [30],
-      overrides: serializeOverrides({}),
-    }),
-  );
+  const initialStartOffsetRef = useRef(startOffset);
+
+const initialSignatureRef = useRef(
+  JSON.stringify({
+    name: existingSchedule?.name ?? presetName,
+    color: existingSchedule?.color ?? SCHEDULE_COLORS[0],
+    shiftStartTime: existingSchedule ? existingSchedule.shiftStartTime.slice(0, 5) : '08:00',
+    alarmOffsets: existingSchedule
+      ? [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a)
+      : [30],
+    overrides: serializeOverrides({}),
+    startOffset: initialStartOffsetRef.current,
+  }),
+);
   
-  const hasChanges = useMemo(() => {
-    const currentSignature = JSON.stringify({
-      name,
-      color: selectedColor,
-      shiftStartTime: formatTime(shiftTime),
-      alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
-      overrides: serializeOverrides(overrides),
-    });
-    return currentSignature !== initialSignatureRef.current;
-  }, [name, selectedColor, shiftTime, alarmOffsets, overrides]);
+const hasChanges = useMemo(() => {
+  const currentSignature = JSON.stringify({
+    name,
+    color: selectedColor,
+    shiftStartTime: formatTime(shiftTime),
+    alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
+    overrides: serializeOverrides(overrides),
+    startOffset,
+  });
+  return currentSignature !== initialSignatureRef.current;
+}, [name, selectedColor, shiftTime, alarmOffsets, overrides, startOffset]);
 
   const showSaveButton = !isEditing || hasChanges;
 
@@ -234,7 +238,11 @@ export function ConfigureScheduleScreen() {
       await saveDayOverrides(nativeSchedule.id, overridesList);
     
       if (isEditing) {
+        // Сначала схлопываем стек графиков обратно до списка (иначе сам
+        // экран настройки остаётся "живым" в истории навигации, просто скрытым
+        // за другой вкладкой) — и только потом переключаемся на вкладку Календарь.
         navigation.popToTop();
+        (navigation.getParent() as any)?.navigate('Calendar');
       } else {
         navigation.navigate('SchedulesList', { justCreatedId: nativeSchedule.id });
       }
@@ -323,39 +331,7 @@ export function ConfigureScheduleScreen() {
         <Text style={styles.emptyAlarmsHint}>Выбери хотя бы один будильник</Text>
       )}
 
-      <Text style={styles.sectionLabel}>Начать цикл с</Text>
-      <View style={styles.stepperRow}>
-        <Pressable
-          style={[styles.stepperArrow, startOffset <= 0 && styles.stepperArrowDisabled]}
-          disabled={startOffset <= 0}
-          onPress={() => setStartOffset(o => o - 1)}
-        >
-          <ChevronLeft color={startOffset <= 0 ? colors.border : colors.textPrimary} size={22} />
-        </Pressable>
-
-        <View style={styles.stepperLabelBlock}>
-          <Text style={styles.stepperLabel}>{formatStartLabel(startDate)}</Text>
-          <Text style={styles.stepperHint}>
-            сдвиг {startOffset + 1} из {pattern.length}
-          </Text>
-        </View>
-
-        <Pressable
-          style={[
-            styles.stepperArrow,
-            startOffset >= pattern.length - 1 && styles.stepperArrowDisabled,
-          ]}
-          disabled={startOffset >= pattern.length - 1}
-          onPress={() => setStartOffset(o => o + 1)}
-        >
-          <ChevronRight
-            color={startOffset >= pattern.length - 1 ? colors.border : colors.textPrimary}
-            size={22}
-          />
-        </Pressable>
-      </View>
-
-      <Text style={styles.sectionLabel}>Календарь — нажми на день, чтобы изменить</Text>
+<Text style={styles.sectionLabel}>Календарь — нажми на день, чтобы изменить</Text>
       <View style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
           <Pressable onPress={() => setVisibleMonth(addMonths(visibleMonth, -1))}>
@@ -385,7 +361,7 @@ export function ConfigureScheduleScreen() {
                 const patternIsWork = isWorkDayByPattern(day, startDate, pattern);
                 const effectiveIsWork = override ? override === 'work' : patternIsWork;
                 const isToday = isSameDay(day, today);
-                const hasOverride = override !== undefined; 
+                const hasOverride = override !== undefined;
 
                 return (
                   <Pressable
@@ -428,8 +404,39 @@ export function ConfigureScheduleScreen() {
             <View style={[styles.legendDot, styles.legendDotOverride]} />
             <Text style={styles.legendText}>Изменено вручную</Text>
           </View>
-          
         </View>
+      </View>
+
+      <Text style={styles.sectionLabel}>Начать цикл с</Text>
+      <View style={styles.stepperRow}>
+        <Pressable
+          style={[styles.stepperArrow, startOffset <= 0 && styles.stepperArrowDisabled]}
+          disabled={startOffset <= 0}
+          onPress={() => setStartOffset(o => o - 1)}
+        >
+          <ChevronLeft color={startOffset <= 0 ? colors.border : colors.textPrimary} size={22} />
+        </Pressable>
+
+        <View style={styles.stepperLabelBlock}>
+          <Text style={styles.stepperLabel}>{formatStartLabel(startDate)}</Text>
+          <Text style={styles.stepperHint}>
+            сдвиг {startOffset + 1} из {pattern.length}
+          </Text>
+        </View>
+
+        <Pressable
+          style={[
+            styles.stepperArrow,
+            startOffset >= pattern.length - 1 && styles.stepperArrowDisabled,
+          ]}
+          disabled={startOffset >= pattern.length - 1}
+          onPress={() => setStartOffset(o => o + 1)}
+        >
+          <ChevronRight
+            color={startOffset >= pattern.length - 1 ? colors.border : colors.textPrimary}
+            size={22}
+          />
+        </Pressable>
       </View>
 
       {showSaveButton && (

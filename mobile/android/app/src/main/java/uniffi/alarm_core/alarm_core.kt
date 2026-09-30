@@ -737,6 +737,12 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -754,6 +760,8 @@ internal interface UniffiLib : Library {
 
     fun uniffi_alarm_core_fn_func_delete_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_fn_func_delete_schedule_pause_ffi(`dbPath`: RustBuffer.ByValue,`pauseId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_delete_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -762,6 +770,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_load_schedule_pauses_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_work_schedules_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_resolve_timezone_alarm_ffi(`inputTime`: RustBuffer.ByValue,`referenceDate`: RustBuffer.ByValue,`sourceTzName`: RustBuffer.ByValue,`deviceTzName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -769,6 +779,8 @@ internal interface UniffiLib : Library {
     fun uniffi_alarm_core_fn_func_save_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_save_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`overrides`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_save_schedule_pause_ffi(`dbPath`: RustBuffer.ByValue,`pause`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_save_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`schedule`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -892,6 +904,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_alarm_core_checksum_func_delete_custom_event_ffi(
     ): Short
+    fun uniffi_alarm_core_checksum_func_delete_schedule_pause_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_delete_work_schedule_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi(
@@ -900,6 +914,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_alarm_core_checksum_func_load_day_overrides_ffi(
     ): Short
+    fun uniffi_alarm_core_checksum_func_load_schedule_pauses_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_load_work_schedules_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_resolve_timezone_alarm_ffi(
@@ -907,6 +923,8 @@ internal interface UniffiLib : Library {
     fun uniffi_alarm_core_checksum_func_save_custom_event_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_day_overrides_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_save_schedule_pause_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_work_schedule_ffi(
     ): Short
@@ -936,6 +954,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_delete_custom_event_ffi() != 13931.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_alarm_core_checksum_func_delete_schedule_pause_ffi() != 41370.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_delete_work_schedule_ffi() != 16715.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -948,6 +969,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_load_day_overrides_ffi() != 53290.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_alarm_core_checksum_func_load_schedule_pauses_ffi() != 36808.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_load_work_schedules_ffi() != 49504.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -958,6 +982,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_day_overrides_ffi() != 46331.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_save_schedule_pause_ffi() != 54078.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_work_schedule_ffi() != 30008.toShort()) {
@@ -1355,6 +1382,57 @@ public object FfiConverterTypeDayOverride: FfiConverterRustBuffer<DayOverride> {
     override fun write(value: DayOverride, buf: ByteBuffer) {
             FfiConverterTypeNaiveDate.write(value.`date`, buf)
             FfiConverterBoolean.write(value.`isWork`, buf)
+    }
+}
+
+
+
+/**
+ * Диапазон дат, помеченный как "пауза" графика (отпуск, больничный) —
+ * хранится отдельно от day_overrides. Сам механизм генерации будильников
+ * его не читает вообще, он нужен только UI: показать блок особым образом
+ * и снять его одной операцией, не гадая, какие именно overrides были его
+ * частью, а какие пользователь ставил вручную по отдельности.
+ */
+data class SchedulePause (
+    var `id`: Uuid, 
+    var `scheduleId`: Uuid, 
+    var `startDate`: NaiveDate, 
+    var `endDate`: NaiveDate, 
+    var `label`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSchedulePause: FfiConverterRustBuffer<SchedulePause> {
+    override fun read(buf: ByteBuffer): SchedulePause {
+        return SchedulePause(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SchedulePause) = (
+            FfiConverterTypeUuid.allocationSize(value.`id`) +
+            FfiConverterTypeUuid.allocationSize(value.`scheduleId`) +
+            FfiConverterTypeNaiveDate.allocationSize(value.`startDate`) +
+            FfiConverterTypeNaiveDate.allocationSize(value.`endDate`) +
+            FfiConverterString.allocationSize(value.`label`)
+    )
+
+    override fun write(value: SchedulePause, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`id`, buf)
+            FfiConverterTypeUuid.write(value.`scheduleId`, buf)
+            FfiConverterTypeNaiveDate.write(value.`startDate`, buf)
+            FfiConverterTypeNaiveDate.write(value.`endDate`, buf)
+            FfiConverterString.write(value.`label`, buf)
     }
 }
 
@@ -1915,6 +1993,34 @@ public object FfiConverterSequenceTypeDayOverride: FfiConverterRustBuffer<List<D
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeSchedulePause: FfiConverterRustBuffer<List<SchedulePause>> {
+    override fun read(buf: ByteBuffer): List<SchedulePause> {
+        val len = buf.getInt()
+        return List<SchedulePause>(len) {
+            FfiConverterTypeSchedulePause.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SchedulePause>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSchedulePause.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SchedulePause>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSchedulePause.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeWorkSchedule: FfiConverterRustBuffer<List<WorkSchedule>> {
     override fun read(buf: ByteBuffer): List<WorkSchedule> {
         val len = buf.getInt()
@@ -2007,6 +2113,20 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     
 
         /**
+         * Удаляет паузу по id. ВАЖНО: сама по себе НЕ снимает day_overrides,
+         * которые были проставлены вместе с ней — это отдельный шаг на мобильной
+         * стороне (загрузить overrides паузы по диапазону, убрать их).
+         */
+    @Throws(AlarmCoreException::class) fun `deleteSchedulePauseFfi`(`dbPath`: kotlin.String, `pauseId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_schedule_pause_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`pauseId`),_status)
+}
+    
+    
+
+        /**
          * FFI-обёртка: открывает БД, удаляет график по id (вместе со всеми его
          * инстансами благодаря ON DELETE — см. ниже), закрывает соединение.
          */
@@ -2054,6 +2174,19 @@ public typealias FfiConverterTypeUuid = FfiConverterString
             return FfiConverterSequenceTypeDayOverride.lift(
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_day_overrides_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Загружает все паузы конкретного графика.
+         */
+    @Throws(AlarmCoreException::class) fun `loadSchedulePausesFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid): List<SchedulePause> {
+            return FfiConverterSequenceTypeSchedulePause.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_schedule_pauses_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
 }
     )
@@ -2109,6 +2242,19 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_day_overrides_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),FfiConverterSequenceTypeDayOverride.lower(`overrides`),_status)
+}
+    
+    
+
+        /**
+         * Сохраняет новую паузу (не UPSERT — каждая пауза уникальна по id,
+         * пользователь может создать несколько непересекающихся пауз подряд).
+         */
+    @Throws(AlarmCoreException::class) fun `saveSchedulePauseFfi`(`dbPath`: kotlin.String, `pause`: SchedulePause)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_schedule_pause_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeSchedulePause.lower(`pause`),_status)
 }
     
     

@@ -80,6 +80,20 @@ pub struct CustomEvent {
     pub reminder_enabled: bool,
 }
 
+/// Диапазон дат, помеченный как "пауза" графика (отпуск, больничный) —
+/// хранится отдельно от day_overrides. Сам механизм генерации будильников
+/// его не читает вообще, он нужен только UI: показать блок особым образом
+/// и снять его одной операцией, не гадая, какие именно overrides были его
+/// частью, а какие пользователь ставил вручную по отдельности.
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct SchedulePause {
+    pub id: Uuid,
+    pub schedule_id: Uuid,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub label: String,
+}
+
 /// Статус конкретного экземпляра будильника на конкретную дату.
 /// Разница Active/SkippedByUser — это и есть механика "отключить,
 /// но не удалить", которую ты просил в самом начале.

@@ -49,6 +49,14 @@ pub fn init_db(path: &str) -> Result<Connection> {
             description TEXT NOT NULL DEFAULT '',
             reminder_enabled INTEGER NOT NULL DEFAULT 1
         );
+
+        CREATE TABLE IF NOT EXISTS schedule_pauses (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL REFERENCES work_schedules(id) ON DELETE CASCADE,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            label TEXT NOT NULL
+        );
         ",
     )?;
 
@@ -459,6 +467,67 @@ pub fn delete_custom_event_ffi(db_path: String, event_id: Uuid) -> Result<(), Al
     Ok(())
 }
 
+use crate::SchedulePause;
+
+/// Сохраняет новую паузу (не UPSERT — каждая пауза уникальна по id,
+/// пользователь может создать несколько непересекающихся пауз подряд).
+#[uniffi::export]
+pub fn save_schedule_pause_ffi(db_path: String, pause: SchedulePause) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute(
+        "INSERT INTO schedule_pauses (id, schedule_id, start_date, end_date, label)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        (
+            pause.id.to_string(),
+            pause.schedule_id.to_string(),
+            pause.start_date.to_string(),
+            pause.end_date.to_string(),
+            &pause.label,
+        ),
+    )
+    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
+}
+
+/// Загружает все паузы конкретного графика.
+#[uniffi::export]
+pub fn load_schedule_pauses_ffi(db_path: String, schedule_id: Uuid) -> Result<Vec<SchedulePause>, AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let mut stmt = conn
+        .prepare("SELECT id, schedule_id, start_date, end_date, label FROM schedule_pauses WHERE schedule_id = ?1")
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    let rows = stmt
+        .query_map([schedule_id.to_string()], |row| {
+            let id_str: String = row.get(0)?;
+            let schedule_id_str: String = row.get(1)?;
+            let start_str: String = row.get(2)?;
+            let end_str: String = row.get(3)?;
+            Ok(SchedulePause {
+                id: id_str.parse().expect("stored id should always be valid UUID"),
+                schedule_id: schedule_id_str.parse().expect("stored schedule_id should always be valid UUID"),
+                start_date: start_str.parse().expect("stored date should always be valid"),
+                end_date: end_str.parse().expect("stored date should always be valid"),
+                label: row.get(4)?,
+            })
+        })
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
+/// Удаляет паузу по id. ВАЖНО: сама по себе НЕ снимает day_overrides,
+/// которые были проставлены вместе с ней — это отдельный шаг на мобильной
+/// стороне (загрузить overrides паузы по диапазону, убрать их).
+#[uniffi::export]
+pub fn delete_schedule_pause_ffi(db_path: String, pause_id: Uuid) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute("DELETE FROM schedule_pauses WHERE id = ?1", [pause_id.to_string()])
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -803,6 +872,49 @@ fn save_load_delete_custom_event_roundtrip() {
     delete_custom_event_ffi(db_path_str.clone(), event.id).unwrap();
 
     let after_delete = load_custom_events_ffi(db_path_str).unwrap();
+    assert_eq!(after_delete.len(), 0);
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn save_load_delete_schedule_pause_roundtrip() {
+    let db_path = std::env::temp_dir().join(format!("test_pause_{}.db", Uuid::new_v4()));
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let conn = init_db(&db_path_str).unwrap();
+
+    let schedule = WorkSchedule {
+        id: Uuid::new_v4(),
+        name: "Test".to_string(),
+        color: "#E8875A".to_string(),
+        pattern: SchedulePattern::Custom(vec![DayType::Work, DayType::Rest]),
+        source: ScheduleSource::Custom,
+        start_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        shift_start_time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+        alarms: vec![],
+        is_active: true,
+        is_paused: false,
+    };
+    save_work_schedule(&conn, &schedule).unwrap();
+
+    let pause = SchedulePause {
+        id: Uuid::new_v4(),
+        schedule_id: schedule.id,
+        start_date: NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+        end_date: NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
+        label: "Отпуск".to_string(),
+    };
+
+    save_schedule_pause_ffi(db_path_str.clone(), pause.clone()).unwrap();
+
+    let loaded = load_schedule_pauses_ffi(db_path_str.clone(), schedule.id).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].label, "Отпуск");
+
+    delete_schedule_pause_ffi(db_path_str.clone(), pause.id).unwrap();
+
+    let after_delete = load_schedule_pauses_ffi(db_path_str, schedule.id).unwrap();
     assert_eq!(after_delete.len(), 0);
 
     std::fs::remove_file(db_path).ok();

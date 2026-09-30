@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Alert, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, Alert, BackHandler, Animated } from 'react-native';
 import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Plus, Trash2, Check, Circle, CircleDot } from 'lucide-react-native';
@@ -27,7 +27,41 @@ export function SchedulesScreen() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const processedHighlightIdRef = useRef<string | null>(null);
+const processedHighlightIdRef = useRef<string | null>(null);
+
+// Показ/скрытие кнопки "+" по направлению скролла — та же логика, что
+// на Календаре: реагируем на факт "листаем вниз/вверх", а не на пиксели
+// позиции, и синхронно останавливаем предыдущую анимацию перед новой,
+// чтобы не поймать гонку из двух одновременных Animated.timing.
+const fabAnim = useRef(new Animated.Value(1)).current;
+const fabTargetRef = useRef(1);
+const decisionAnchorYRef = useRef(0);
+const runningAnimationRef = useRef<{ stop: () => void } | null>(null);
+
+function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
+  const currentY = e.nativeEvent.contentOffset.y;
+  const distanceFromAnchor = currentY - decisionAnchorYRef.current;
+  const THRESHOLD = 8;
+
+  const shouldHide = distanceFromAnchor > THRESHOLD && fabTargetRef.current === 1;
+  const shouldShow = distanceFromAnchor < -THRESHOLD && fabTargetRef.current === 0;
+
+  if (shouldHide || shouldShow) {
+    const nextTarget = shouldHide ? 0 : 1;
+    fabTargetRef.current = nextTarget;
+    decisionAnchorYRef.current = currentY;
+
+    runningAnimationRef.current?.stop();
+
+    const animation = Animated.timing(fabAnim, {
+      toValue: nextTarget,
+      duration: nextTarget === 0 ? 120 : 140,
+      useNativeDriver: true,
+    });
+    runningAnimationRef.current = animation;
+    animation.start();
+  }
+}
   const isSelectionMode = selectedIds.size > 0;
 
   useFocusEffect(
@@ -186,6 +220,8 @@ export function SchedulesScreen() {
         data={schedules}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.list}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         renderItem={({ item }) => {
           const isSelected = selectedIds.has(item.id);
           return (
@@ -227,15 +263,33 @@ export function SchedulesScreen() {
         }}
       />
 
-      {isSelectionMode ? (
-        <Pressable style={[styles.fab, styles.fabDanger]} onPress={handleDelete}>
-          <Trash2 color={colors.textPrimary} size={24} />
-        </Pressable>
-      ) : (
-        <Pressable style={styles.fab} onPress={() => navigation.navigate('CreateSchedule')}>
-          <Plus color={colors.background} size={26} />
-        </Pressable>
-      )}
+<Animated.View
+  style={[
+    styles.fabWrapper,
+    {
+      opacity: fabAnim,
+      transform: [
+        {
+          translateY: fabAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [80, 0],
+          }),
+        },
+      ],
+    },
+  ]}
+  pointerEvents={fabTargetRef.current === 1 ? 'auto' : 'none'}
+>
+  {isSelectionMode ? (
+    <Pressable style={[styles.fab, styles.fabDanger]} onPress={handleDelete}>
+      <Trash2 color={colors.textPrimary} size={24} />
+    </Pressable>
+  ) : (
+    <Pressable style={styles.fab} onPress={() => navigation.navigate('CreateSchedule')}>
+      <Plus color={colors.background} size={26} />
+    </Pressable>
+  )}
+</Animated.View>
     </View>
   );
 }
@@ -281,10 +335,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   badgeText: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
-  fab: {
+  fabWrapper: {
     position: 'absolute',
     right: spacing.lg,
     bottom: spacing.lg,
+  },
+  fab: {
     width: 56,
     height: 56,
     borderRadius: 28,

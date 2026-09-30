@@ -267,4 +267,52 @@ fun deleteCustomEvent(eventId: String, promise: Promise) {
         promise.reject("DELETE_EVENT_ERROR", e.message, e)
     }
 }
+
+@ReactMethod
+fun saveSchedulePauseJson(pauseJson: String, promise: Promise) {
+    try {
+        val obj = JSONObject(pauseJson)
+        val pause = SchedulePause(
+            id = obj.getString("id"),
+            scheduleId = obj.getString("scheduleId"),
+            startDate = obj.getString("startDate"),
+            endDate = obj.getString("endDate"),
+            label = obj.getString("label"),
+        )
+        saveSchedulePauseFfi(dbPath(), pause)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("SAVE_PAUSE_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun loadSchedulePausesJson(scheduleId: String, promise: Promise) {
+    try {
+        val pauses = loadSchedulePausesFfi(dbPath(), scheduleId)
+        val array = JSONArray()
+        for (p in pauses) {
+            val obj = JSONObject()
+            obj.put("id", p.id)
+            obj.put("scheduleId", p.scheduleId)
+            obj.put("startDate", p.startDate)
+            obj.put("endDate", p.endDate)
+            obj.put("label", p.label)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("LOAD_PAUSES_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun deleteSchedulePause(pauseId: String, promise: Promise) {
+    try {
+        deleteSchedulePauseFfi(dbPath(), pauseId)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("DELETE_PAUSE_ERROR", e.message, e)
+    }
+}
 }
