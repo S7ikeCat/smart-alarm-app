@@ -4,7 +4,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { ChevronLeft, ChevronRight, Clock, Plus, Trash2, Check, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Plus, Trash2, Check, X, CalendarRange } from 'lucide-react-native';
 import uuid from 'react-native-uuid';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -133,6 +133,9 @@ export function ConfigureScheduleScreen() {
   const [pauseCursor, setPauseCursor] = useState<Date | null>(null);
   const [pauseLabel, setPauseLabel] = useState('');
   const [isPauseFormOpen, setIsPauseFormOpen] = useState(false);
+  const [isCustomPauseLabel, setIsCustomPauseLabel] = useState(false);
+
+  const PAUSE_LABEL_PRESETS = ['Отпуск', 'Больничный'];
 
   // Пауза возможна только у УЖЕ сохранённого графика — schedule_pauses
   // ссылается на реальный id графика в БД, которого у нового графика
@@ -263,14 +266,24 @@ const hasChanges = useMemo(() => {
     if (!pauseAnchor) {
       setPauseAnchor(day);
       setPauseCursor(day);
-    } else {
-      setPauseCursor(day);
+      return;
     }
+
+    if (isSameDay(day, pauseAnchor)) {
+      // Повторный тап по тому же первому дню — интуитивная отмена выбора,
+      // а не схлопывание диапазона обратно в один день.
+      setPauseAnchor(null);
+      setPauseCursor(null);
+      return;
+    }
+
+    setPauseCursor(day);
   }
 
   function handleCancelPauseSelection() {
     setIsPauseSelectMode(false);
     setIsPauseFormOpen(false);
+    setIsCustomPauseLabel(false);
     setPauseAnchor(null);
     setPauseCursor(null);
     setPauseLabel('');
@@ -566,7 +579,7 @@ const hasChanges = useMemo(() => {
             </Pressable>
           )}
 
-          <Modal
+<Modal
             visible={isPauseFormOpen}
             transparent
             animationType="fade"
@@ -574,24 +587,64 @@ const hasChanges = useMemo(() => {
           >
             <View style={styles.modalBackdrop}>
               <View style={styles.modalCard}>
+                <View style={styles.modalIconCircle}>
+                  <CalendarRange color={colors.pauseAccent} size={24} />
+                </View>
+
                 <Text style={styles.modalRangeText}>
                   {pauseRangeStart && pauseRangeEnd
                     ? `${formatStartLabel(pauseRangeStart)} — ${formatStartLabel(pauseRangeEnd)}`
                     : ''}
                 </Text>
-                <TextInput
-                  style={styles.input}
-                  value={pauseLabel}
-                  onChangeText={setPauseLabel}
-                  placeholder="Например: Отпуск"
-                  placeholderTextColor={colors.textSecondary}
-                  autoFocus
-                />
+
+                {isCustomPauseLabel ? (
+                  <TextInput
+                    style={styles.input}
+                    value={pauseLabel}
+                    onChangeText={setPauseLabel}
+                    placeholder="Например: Переезд"
+                    placeholderTextColor={colors.textSecondary}
+                    autoFocus
+                  />
+                ) : (
+                  <View style={styles.pauseChipsRow}>
+                    {PAUSE_LABEL_PRESETS.map(preset => (
+                      <Pressable
+                        key={preset}
+                        style={[styles.pauseChip, pauseLabel === preset && styles.pauseChipSelected]}
+                        onPress={() => setPauseLabel(preset)}
+                      >
+                        <Text
+                          style={[
+                            styles.pauseChipText,
+                            pauseLabel === preset && styles.pauseChipTextSelected,
+                          ]}
+                        >
+                          {preset}
+                        </Text>
+                      </Pressable>
+                    ))}
+                    <Pressable
+                      style={styles.pauseChip}
+                      onPress={() => {
+                        setPauseLabel('');
+                        setIsCustomPauseLabel(true);
+                      }}
+                    >
+                      <Text style={styles.pauseChipText}>Другое</Text>
+                    </Pressable>
+                  </View>
+                )}
+
                 <View style={styles.pauseFormButtons}>
                   <Pressable style={styles.pauseFormCancel} onPress={() => setIsPauseFormOpen(false)}>
                     <Text style={styles.pauseFormCancelText}>Назад</Text>
                   </Pressable>
-                  <Pressable style={styles.pauseFormSave} onPress={handleSavePause}>
+                  <Pressable
+                    style={[styles.pauseFormSave, !pauseLabel.trim() && styles.saveButtonDisabled]}
+                    disabled={!pauseLabel.trim()}
+                    onPress={handleSavePause}
+                  >
                     <Text style={styles.pauseFormSaveText}>Сохранить</Text>
                   </Pressable>
                 </View>
@@ -901,7 +954,34 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  modalRangeText: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+  modalIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: spacing.sm,
+  },
+  modalRangeText: {
+    ...typography.body,
+    color: colors.textPrimary,
+    fontWeight: '600',
+    textAlign: 'center',
+    fontSize: 16,
+    marginBottom: spacing.sm,
+  },
+  pauseChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  pauseChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 20,
+    backgroundColor: colors.background,
+  },
+  pauseChipSelected: { backgroundColor: colors.pauseAccent },
+  pauseChipText: { ...typography.caption, color: colors.textSecondary },
+  pauseChipTextSelected: { color: colors.background, fontWeight: '600' },
   pauseFormButtons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   pauseFormCancel: {
     flex: 1,
