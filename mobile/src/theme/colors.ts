@@ -10,6 +10,8 @@ export const colors = {
   textSecondary: '#6B5D52',
   accent: '#E8875A',
   accentSecondary: '#4A7A6B',
-  restAccent: '#C9A66B', // тёплый песочный — специально для "отдыха", не путать с accentSecondary
+  restAccent: '#C9A66B',
+  pauseAccentSelecting: '#A6727F', // приглушённый пыльный розовый — заливка во время выбора диапазона
+  pauseAccent: '#C2949F', // приглушённый пыльный розовый, светлее — контур/диванчик сохранённой паузы
   border: '#3A322C',
 };

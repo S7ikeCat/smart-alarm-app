@@ -12,11 +12,12 @@ import {
   generateUpcomingAlarms,
   loadCustomEvents,
   deleteCustomEvent,
+  loadSchedulePauses,
   NativeWorkSchedule,
   NativeAlarmInstance,
   NativeCustomEvent,
 } from '../../native/alarmCore';
-import { startOfDay, addDays } from '../../utils/scheduleCalendar';
+import { startOfDay, addDays, isDateInAnyPause } from '../../utils/scheduleCalendar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const DAYS_TO_SHOW = 7;
@@ -29,6 +30,7 @@ type DayRow = {
   isWork: boolean;
   time: string | null;
   event: NativeCustomEvent | null;
+  isPaused: boolean;
 };
 
 function dateKey(d: Date) {
@@ -124,18 +126,20 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
 
   const loadCalendarData = useCallback(async () => {
     const [schedules, alarms, events] = await Promise.all([
-      loadWorkSchedules(),
-      generateUpcomingAlarms(2),
-      loadCustomEvents(),
-    ]);
+    loadWorkSchedules(),
+    generateUpcomingAlarms(2),
+    loadCustomEvents(),
+  ]);
 
-    const active = schedules.find(s => s.isActive) ?? null;
-    setActiveSchedule(active);
+  const active = schedules.find(s => s.isActive) ?? null;
+  setActiveSchedule(active);
 
-    if (!active) {
-      setDays([]);
-      return;
-    }
+  if (!active) {
+    setDays([]);
+    return;
+  }
+
+  const pauses = await loadSchedulePauses(active.id);
 
     const earliestByDate = new Map<string, NativeAlarmInstance>();
     for (const instance of alarms) {
@@ -172,12 +176,13 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
         ? matchedEvent.timeLocal.slice(0, 5)
         : null;
 
-      rows.push({
-        date: day,
-        isWork,
-        time,
-        event: matchedEvent,
-      });
+        rows.push({
+          date: day,
+          isWork,
+          time,
+          event: matchedEvent,
+          isPaused: isDateInAnyPause(day, pauses),
+        });
     }
 
     setDays(rows);
@@ -277,7 +282,11 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
   return (
     <View style={styles.container}>
       <View style={styles.hero}>
-        <AlarmClock color={colors.accent} size={26} style={styles.heroIcon} />
+      <AlarmClock
+          color={todayRow?.isPaused ? colors.pauseAccent : colors.accent}
+          size={26}
+          style={styles.heroIcon}
+        />
         <Text style={styles.greeting}>{getGreeting(new Date().getHours())}</Text>
         <Text style={styles.dateCaption}>{formatTodayDate(new Date())}</Text>
 
@@ -285,12 +294,12 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
           <Text style={[styles.time, { fontSize: typography.displayLarge.fontSize * scale }]}>
             {formatClock(now)}
           </Text>
-        ) : (
-          <>
-            <Sofa color={colors.restAccent} size={44} />
-            <Text style={styles.restHeroTitle}>Сегодня твой день</Text>
-          </>
-        )}
+                ) : (
+                  <>
+                    <Sofa color={todayRow?.isPaused ? colors.pauseAccent : colors.restAccent} size={44} />
+                    <Text style={styles.restHeroTitle}>Сегодня твой день</Text>
+                  </>
+                )}
         <Text style={styles.subtitle}>{activeSchedule.name}</Text>
       </View>
 
@@ -345,7 +354,7 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
                 {item.isWork ? (
                   <Text style={styles.rowTime}>{item.time ?? '—'}</Text>
                 ) : (
-                  <Sofa color={colors.restAccent} size={22} />
+                  <Sofa color={item.isPaused ? colors.pauseAccent : colors.restAccent} size={22} />
                 )}
               </View>
             </Pressable>

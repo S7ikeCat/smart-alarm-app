@@ -78,3 +78,17 @@ export function formatMonth(date: Date) {
 }
 
 export const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+export function isDateInAnyPause(
+  day: Date,
+  pauses: { startDate: string; endDate: string }[],
+): boolean {
+  const dayTime = startOfDay(day).getTime();
+  return pauses.some(p => {
+    const [sy, sm, sd] = p.startDate.split('-').map(Number);
+    const [ey, em, ed] = p.endDate.split('-').map(Number);
+    const start = new Date(sy, sm - 1, sd).getTime();
+    const end = new Date(ey, em - 1, ed).getTime();
+    return dayTime >= start && dayTime <= end;
+  });
+}

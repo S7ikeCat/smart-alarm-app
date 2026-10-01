@@ -119,3 +119,24 @@ export async function loadCustomEvents(): Promise<NativeCustomEvent[]> {
 export function deleteCustomEvent(eventId: string): Promise<void> {
   return AlarmCore.deleteCustomEvent(eventId);
 }
+
+export type NativeSchedulePause = {
+  id: string;
+  scheduleId: string;
+  startDate: string; // "YYYY-MM-DD"
+  endDate: string; // "YYYY-MM-DD"
+  label: string;
+};
+
+export function saveSchedulePause(pause: NativeSchedulePause): Promise<void> {
+  return AlarmCore.saveSchedulePauseJson(JSON.stringify(pause));
+}
+
+export async function loadSchedulePauses(scheduleId: string): Promise<NativeSchedulePause[]> {
+  const json: string = await AlarmCore.loadSchedulePausesJson(scheduleId);
+  return JSON.parse(json);
+}
+
+export function deleteSchedulePause(pauseId: string): Promise<void> {
+  return AlarmCore.deleteSchedulePause(pauseId);
+}

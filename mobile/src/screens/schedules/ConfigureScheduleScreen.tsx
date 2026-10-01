@@ -1,16 +1,25 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Modal } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { ChevronLeft, ChevronRight, Clock } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Clock, Plus, Trash2, Check, X } from 'lucide-react-native';
 import uuid from 'react-native-uuid';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { SchedulesStackParamList } from '../../navigation/types';
-import { saveWorkSchedule, saveDayOverrides, loadDayOverrides, NativeWorkSchedule } from '../../native/alarmCore';
+import {
+  saveWorkSchedule,
+  saveDayOverrides,
+  loadDayOverrides,
+  saveSchedulePause,
+  loadSchedulePauses,
+  deleteSchedulePause,
+  NativeWorkSchedule,
+  NativeSchedulePause,
+} from '../../native/alarmCore';
 
 type Route = RouteProp<SchedulesStackParamList, 'ConfigureSchedule'>;
 type Navigation = NativeStackNavigationProp<SchedulesStackParamList, 'ConfigureSchedule'>;
@@ -32,6 +41,7 @@ import {
   addMonths,
   formatMonth,
   WEEKDAY_LABELS,
+  isDateInAnyPause,
 } from '../../utils/scheduleCalendar';
 
 function formatStartLabel(date: Date) {
@@ -56,6 +66,22 @@ function formatOffset(minutes: number) {
 function serializeOverrides(o: Record<string, DayOverride>) {
   return JSON.stringify(Object.keys(o).sort().map(key => [key, o[key]]));
 }
+
+function formatIsoDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function eachDateInRange(start: Date, end: Date): Date[] {
+  const result: Date[] = [];
+  let cursor = startOfDay(start);
+  const last = startOfDay(end);
+  while (cursor.getTime() <= last.getTime()) {
+    result.push(cursor);
+    cursor = addDays(cursor, 1);
+  }
+  return result;
+}
+
 
 export function ConfigureScheduleScreen() {
   const route = useRoute<Route>();
@@ -98,6 +124,34 @@ export function ConfigureScheduleScreen() {
       });
     });
   }, [existingSchedule]);
+
+  // --- Паузы (отпуск/больничный на диапазон дат) ---------------------------
+
+  const [pauses, setPauses] = useState<NativeSchedulePause[]>([]);
+  const [isPauseSelectMode, setIsPauseSelectMode] = useState(false);
+  const [pauseAnchor, setPauseAnchor] = useState<Date | null>(null);
+  const [pauseCursor, setPauseCursor] = useState<Date | null>(null);
+  const [pauseLabel, setPauseLabel] = useState('');
+  const [isPauseFormOpen, setIsPauseFormOpen] = useState(false);
+
+  // Пауза возможна только у УЖЕ сохранённого графика — schedule_pauses
+  // ссылается на реальный id графика в БД, которого у нового графика
+  // (ещё не нажали "Сохранить") физически не существует.
+  useEffect(() => {
+    if (!existingSchedule) return;
+    loadSchedulePauses(existingSchedule.id).then(setPauses);
+  }, [existingSchedule]);
+
+  const pauseRangeStart = useMemo(() => {
+    if (!pauseAnchor || !pauseCursor) return null;
+    return pauseAnchor.getTime() <= pauseCursor.getTime() ? pauseAnchor : pauseCursor;
+  }, [pauseAnchor, pauseCursor]);
+
+  const pauseRangeEnd = useMemo(() => {
+    if (!pauseAnchor || !pauseCursor) return null;
+    return pauseAnchor.getTime() <= pauseCursor.getTime() ? pauseCursor : pauseAnchor;
+  }, [pauseAnchor, pauseCursor]);
+
   // Время начала смены. При редактировании — из сохранённого графика
   // (строка "HH:MM:SS"), иначе по умолчанию 08:00.
   const [shiftTime, setShiftTime] = useState(() => {
@@ -126,15 +180,14 @@ export function ConfigureScheduleScreen() {
     const todayDate = startOfDay(new Date());
   
     if (existingSchedule) {
-      // Переводим сохранённую дату старта в "сдвиг от сегодня", который даёт
-      // ТУ ЖЕ фазу паттерна (какие дни рабочие) — чтобы при открытии на
-      // редактирование календарь выглядел ровно так же, как был сохранён,
-      // а степпер при этом честно отталкивался от реального "сегодня".
+      // Берём разницу в днях между сохранённой датой и сегодня БЕЗ
+      // приведения по модулю длины цикла — раньше модуль сворачивал любой
+      // сдвиг в диапазон [0, length-1], из-за чего при повторном открытии
+      // экран показывал ДРУГУЮ (хоть и эквивалентную по фазе) дату вместо
+      // той, что реально выбирал пользователь — выглядело как "сброс".
       const [year, month, day] = existingSchedule.startDate.split('-').map(Number);
       const storedDate = new Date(year, month - 1, day);
-      const rawDiff = Math.round((storedDate.getTime() - todayDate.getTime()) / 86400000);
-      const cycleLen = pattern.length;
-      return ((rawDiff % cycleLen) + cycleLen) % cycleLen;
+      return Math.round((storedDate.getTime() - todayDate.getTime()) / 86400000);
     }
   
     const todayWeekday = (todayDate.getDay() + 6) % 7; // Пн=0 ... Вс=6
@@ -204,6 +257,143 @@ const hasChanges = useMemo(() => {
       }
       return next;
     });
+  }
+
+  function handlePauseDayTap(day: Date) {
+    if (!pauseAnchor) {
+      setPauseAnchor(day);
+      setPauseCursor(day);
+    } else {
+      setPauseCursor(day);
+    }
+  }
+
+  function handleCancelPauseSelection() {
+    setIsPauseSelectMode(false);
+    setIsPauseFormOpen(false);
+    setPauseAnchor(null);
+    setPauseCursor(null);
+    setPauseLabel('');
+  }
+
+  async function handleSavePause() {
+    if (!existingSchedule) {
+      Alert.alert('Сначала сохрани график', 'Паузу можно добавить только уже сохранённому графику.');
+      return;
+    }
+    if (!pauseRangeStart || !pauseRangeEnd) return;
+
+    // Не даём создать паузу, пересекающуюся с уже существующей — иначе
+    // обе "делят" одни и те же day_overrides (это просто плоская карта
+    // дат без привязки к конкретной паузе), и удаление одной стирает
+    // эффект другой, оставляя её "призраком" в списке.
+    const hasOverlap = eachDateInRange(pauseRangeStart, pauseRangeEnd).some(day =>
+      isDateInAnyPause(day, pauses),
+    );
+    if (hasOverlap) {
+      Alert.alert(
+        'Даты уже заняты',
+        'Часть выбранного диапазона уже входит в другую паузу. Сначала удали её или выбери другие даты',
+      );
+      return;
+    }
+
+    // Весь диапазон помечаем выходным поверх обычного паттерна — сливаем
+    // с уже существующими overrides, не затирая точечные правки вне диапазона.
+    const nextOverrides: Record<string, DayOverride> = { ...overrides };
+    for (const day of eachDateInRange(pauseRangeStart, pauseRangeEnd)) {
+      nextOverrides[dateKey(day)] = 'rest';
+    }
+
+    const overridesList = Object.entries(nextOverrides).map(([key, value]) => {
+      const [year, month, day] = key.split('-').map(Number);
+      return {
+        date: formatIsoDate(new Date(year, month - 1, day)),
+        isWork: value === 'work',
+      };
+    });
+
+    const newPause: NativeSchedulePause = {
+      id: uuid.v4() as string,
+      scheduleId: existingSchedule.id,
+      startDate: formatIsoDate(pauseRangeStart),
+      endDate: formatIsoDate(pauseRangeEnd),
+      label: pauseLabel.trim() || 'Пауза',
+    };
+
+    try {
+      await saveDayOverrides(existingSchedule.id, overridesList);
+      await saveSchedulePause(newPause);
+
+      setOverrides(nextOverrides);
+      setPauses(prev => [...prev, newPause]);
+
+      // Пауза сохраняется сама по себе сразу (как и события) — обновляем
+      // "снимок исходного состояния", чтобы кнопка "Сохранить изменения"
+      // внизу экрана не зажглась ложно для уже сохранённого действия.
+      initialSignatureRef.current = JSON.stringify({
+        name,
+        color: selectedColor,
+        shiftStartTime: formatTime(shiftTime),
+        alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
+        overrides: serializeOverrides(nextOverrides),
+        startOffset,
+      });
+
+      handleCancelPauseSelection();
+    } catch (error) {
+      Alert.alert('Не удалось сохранить паузу', String(error));
+    }
+  }
+
+  function handleDeletePause(pause: NativeSchedulePause) {
+    Alert.alert('Удалить паузу?', `«${pause.label}» — будильники на этот диапазон вернутся к обычному графику.`, [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          if (!existingSchedule) return;
+
+          const [sy, sm, sd] = pause.startDate.split('-').map(Number);
+          const [ey, em, ed] = pause.endDate.split('-').map(Number);
+          const rangeStart = new Date(sy, sm - 1, sd);
+          const rangeEnd = new Date(ey, em - 1, ed);
+
+          const nextOverrides: Record<string, DayOverride> = { ...overrides };
+          for (const day of eachDateInRange(rangeStart, rangeEnd)) {
+            delete nextOverrides[dateKey(day)];
+          }
+
+          const overridesList = Object.entries(nextOverrides).map(([key, value]) => {
+            const [year, month, day] = key.split('-').map(Number);
+            return {
+              date: formatIsoDate(new Date(year, month - 1, day)),
+              isWork: value === 'work',
+            };
+          });
+
+          try {
+            await saveDayOverrides(existingSchedule.id, overridesList);
+            await deleteSchedulePause(pause.id);
+
+            setOverrides(nextOverrides);
+            setPauses(prev => prev.filter(p => p.id !== pause.id));
+
+            initialSignatureRef.current = JSON.stringify({
+              name,
+              color: selectedColor,
+              shiftStartTime: formatTime(shiftTime),
+              alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
+              overrides: serializeOverrides(nextOverrides),
+              startOffset,
+            });
+          } catch (error) {
+            Alert.alert('Не удалось удалить паузу', String(error));
+          }
+        },
+      },
+    ]);
   }
 
   async function handleSave() {
@@ -331,6 +521,86 @@ const hasChanges = useMemo(() => {
         <Text style={styles.emptyAlarmsHint}>Выбери хотя бы один будильник</Text>
       )}
 
+{existingSchedule && (
+  <>
+    <Text style={styles.sectionLabel}>Паузы (отпуск, больничный)</Text>
+
+    {pauses.map(pause => (
+      <View key={pause.id} style={styles.pauseRow}>
+        <View style={styles.pauseInfo}>
+          <Text style={styles.pauseLabel}>{pause.label}</Text>
+          <Text style={styles.pauseRange}>
+            {pause.startDate} — {pause.endDate}
+          </Text>
+        </View>
+        <Pressable onPress={() => handleDeletePause(pause)} hitSlop={8}>
+          <Trash2 color={colors.accent} size={18} />
+        </Pressable>
+      </View>
+    ))}
+
+{isPauseSelectMode ? (
+            <View style={styles.pauseToolbar}>
+              <Text style={styles.pauseToolbarHint}>
+                {pauseRangeStart && pauseRangeEnd
+                  ? `${formatStartLabel(pauseRangeStart)} — ${formatStartLabel(pauseRangeEnd)}`
+                  : 'Нажми на первый и последний день в календаре выше'}
+              </Text>
+              <View style={styles.pauseToolbarButtons}>
+                <Pressable onPress={handleCancelPauseSelection} hitSlop={8}>
+                  <X color={colors.textSecondary} size={20} />
+                </Pressable>
+                <Pressable
+                  disabled={!pauseRangeStart}
+                  onPress={() => setIsPauseFormOpen(true)}
+                  hitSlop={8}
+                >
+                  <Check color={pauseRangeStart ? colors.accent : colors.border} size={20} />
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable style={styles.addPauseButton} onPress={() => setIsPauseSelectMode(true)}>
+              <Plus color={colors.accent} size={18} />
+              <Text style={styles.addPauseButtonText}>Добавить паузу</Text>
+            </Pressable>
+          )}
+
+          <Modal
+            visible={isPauseFormOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setIsPauseFormOpen(false)}
+          >
+            <View style={styles.modalBackdrop}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalRangeText}>
+                  {pauseRangeStart && pauseRangeEnd
+                    ? `${formatStartLabel(pauseRangeStart)} — ${formatStartLabel(pauseRangeEnd)}`
+                    : ''}
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  value={pauseLabel}
+                  onChangeText={setPauseLabel}
+                  placeholder="Например: Отпуск"
+                  placeholderTextColor={colors.textSecondary}
+                  autoFocus
+                />
+                <View style={styles.pauseFormButtons}>
+                  <Pressable style={styles.pauseFormCancel} onPress={() => setIsPauseFormOpen(false)}>
+                    <Text style={styles.pauseFormCancelText}>Назад</Text>
+                  </Pressable>
+                  <Pressable style={styles.pauseFormSave} onPress={handleSavePause}>
+                    <Text style={styles.pauseFormSaveText}>Сохранить</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+  </>
+)}
+
 <Text style={styles.sectionLabel}>Календарь — нажми на день, чтобы изменить</Text>
       <View style={styles.calendarCard}>
         <View style={styles.calendarHeader}>
@@ -362,20 +632,30 @@ const hasChanges = useMemo(() => {
                 const effectiveIsWork = override ? override === 'work' : patternIsWork;
                 const isToday = isSameDay(day, today);
                 const hasOverride = override !== undefined;
+                const isPauseOverride = hasOverride && isDateInAnyPause(day, pauses);
 
-                return (
-                  <Pressable
-                    key={i}
-                    style={styles.dayCell}
-                    disabled={!inCurrentMonth}
-                    onPress={() => handleDayTap(day)}
-                  >
+                const isInPauseSelection =
+                isPauseSelectMode &&
+                pauseRangeStart !== null &&
+                pauseRangeEnd !== null &&
+                day.getTime() >= pauseRangeStart.getTime() &&
+                day.getTime() <= pauseRangeEnd.getTime();
+
+              return (
+                <Pressable
+                  key={i}
+                  style={styles.dayCell}
+                  disabled={!inCurrentMonth}
+                  onPress={() => (isPauseSelectMode ? handlePauseDayTap(day) : handleDayTap(day))}
+                >
                     <View
                       style={[
                         styles.dayCircle,
                         inCurrentMonth && effectiveIsWork && styles.dayCircleWork,
                         inCurrentMonth && isToday && styles.dayCircleStart,
-                        inCurrentMonth && hasOverride && styles.dayCircleOverride,
+                        inCurrentMonth && hasOverride && !isPauseOverride && styles.dayCircleOverride,
+                        inCurrentMonth && isPauseOverride && styles.dayCirclePauseOverride,
+                        inCurrentMonth && isInPauseSelection && styles.dayCirclePauseSelected,
                       ]}
                     >
                       <Text
@@ -402,26 +682,33 @@ const hasChanges = useMemo(() => {
           </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, styles.legendDotOverride]} />
-            <Text style={styles.legendText}>Изменено вручную</Text>
+            <Text style={styles.legendText}>Изменено</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, styles.legendDotPause]} />
+            <Text style={styles.legendText}>Пауза</Text>
           </View>
         </View>
       </View>
 
       <Text style={styles.sectionLabel}>Начать цикл с</Text>
       <View style={styles.stepperRow}>
-        <Pressable
-          style={[styles.stepperArrow, startOffset <= 0 && styles.stepperArrowDisabled]}
-          disabled={startOffset <= 0}
+      <Pressable
+          style={[
+            styles.stepperArrow,
+            startOffset <= -(pattern.length - 1) && styles.stepperArrowDisabled,
+          ]}
+          disabled={startOffset <= -(pattern.length - 1)}
           onPress={() => setStartOffset(o => o - 1)}
         >
-          <ChevronLeft color={startOffset <= 0 ? colors.border : colors.textPrimary} size={22} />
+          <ChevronLeft
+            color={startOffset <= -(pattern.length - 1) ? colors.border : colors.textPrimary}
+            size={22}
+          />
         </Pressable>
 
         <View style={styles.stepperLabelBlock}>
           <Text style={styles.stepperLabel}>{formatStartLabel(startDate)}</Text>
-          <Text style={styles.stepperHint}>
-            сдвиг {startOffset + 1} из {pattern.length}
-          </Text>
         </View>
 
         <Pressable
@@ -437,9 +724,9 @@ const hasChanges = useMemo(() => {
             size={22}
           />
         </Pressable>
-      </View>
+        </View>
 
-      {showSaveButton && (
+{showSaveButton && (
         <Pressable
           style={[styles.saveButton, alarmOffsets.length === 0 && styles.saveButtonDisabled]}
           disabled={alarmOffsets.length === 0}
@@ -552,6 +839,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.accentSecondary,
   },
+  legendDotPause: {
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: colors.pauseAccent,
+  },
   legendText: { ...typography.caption, color: colors.textSecondary },
   saveButton: {
     marginTop: spacing.xl,
@@ -562,4 +854,74 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.4 },
   saveButtonText: { ...typography.body, fontWeight: '600', color: colors.background },
+  pauseRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  pauseInfo: {},
+  pauseLabel: { ...typography.body, color: colors.textPrimary },
+  pauseRange: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  addPauseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingVertical: spacing.md,
+  },
+  addPauseButtonText: { ...typography.body, color: colors.accent, fontWeight: '600' },
+  pauseToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  pauseToolbarHint: { ...typography.caption, color: colors.textSecondary, flex: 1 },
+  pauseToolbarButtons: { flexDirection: 'row', gap: spacing.md },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  modalRangeText: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+  pauseFormButtons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  pauseFormCancel: {
+    flex: 1,
+    backgroundColor: colors.border,
+    borderRadius: 10,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  pauseFormCancelText: { ...typography.body, color: colors.textPrimary },
+  pauseFormSave: {
+    flex: 1,
+    backgroundColor: colors.accent,
+    borderRadius: 10,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  pauseFormSaveText: { ...typography.body, fontWeight: '600', color: colors.background },
+  dayCirclePauseOverride: { borderWidth: 2, borderColor: colors.pauseAccent, borderRadius: 999 },
+  dayCirclePauseSelected: {
+    backgroundColor: colors.pauseAccentSelecting,
+    borderRadius: 999,
+  },
 });
