@@ -18,6 +18,7 @@ import {
   NativeCustomEvent,
 } from '../../native/alarmCore';
 import { startOfDay, addDays, isDateInAnyPause } from '../../utils/scheduleCalendar';
+import { syncSystemAlarms } from '../../native/alarmSync';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const DAYS_TO_SHOW = 7;
@@ -198,6 +199,14 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
         .finally(() => {
           if (!cancelled) setIsLoading(false);
         });
+
+      // Синхронизируем реальные системные будильники при каждом заходе на
+      // экран — не мгновенно после каждого сохранения где-то ещё, но
+      // достаточно надёжно: будильник всё равно далеко впереди по времени,
+      // успеет актуализироваться, как только пользователь хоть раз откроет
+      // Календарь. Намеренно не блокируем основной UI её результатом —
+      // просто логируем ошибку, если что-то пошло не так.
+      syncSystemAlarms().catch(error => console.log('Не удалось синхронизировать будильники:', error));
 
       return () => {
         cancelled = true;

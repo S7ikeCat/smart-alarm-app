@@ -26,9 +26,6 @@ type Navigation = NativeStackNavigationProp<SchedulesStackParamList, 'ConfigureS
 
 const SCHEDULE_COLORS = ['#E8875A', '#4A7A6B', '#C0453A', '#6B8CAE', '#B08AC7'];
 
-// Готовые варианты "за сколько до смены будить" — один тап вместо возни с пикером.
-const OFFSET_OPTIONS = [15, 30, 45, 60, 90, 120];
-
 type DayOverride = 'work' | 'rest';
 
 import {
@@ -50,17 +47,6 @@ function formatStartLabel(date: Date) {
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-}
-
-/** Время подъёма = время смены минус offset. Может уехать на предыдущие сутки — это нормально. */
-function alarmTimeFor(shiftTime: Date, offsetMinutes: number) {
-  return new Date(shiftTime.getTime() - offsetMinutes * 60000);
-}
-
-function formatOffset(minutes: number) {
-  if (minutes < 60) return `${minutes} мин`;
-  const hours = minutes / 60;
-  return Number.isInteger(hours) ? `${hours} ч` : `${Math.floor(hours)} ч ${minutes % 60} мин`;
 }
 
 function serializeOverrides(o: Record<string, DayOverride>) {
@@ -118,7 +104,6 @@ export function ConfigureScheduleScreen() {
         name: existingSchedule.name,
         color: existingSchedule.color,
         shiftStartTime: existingSchedule.shiftStartTime.slice(0, 5),
-        alarmOffsets: [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a),
         overrides: serializeOverrides(asRecord),
         startOffset: initialStartOffsetRef.current,
       });
@@ -169,12 +154,6 @@ export function ConfigureScheduleScreen() {
   });
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
-  // За сколько минут до смены будить. При редактировании — из сохранённых
-  // правил, иначе одна заготовка по умолчанию (за 30 минут).
-  const [alarmOffsets, setAlarmOffsets] = useState<number[]>(() =>
-    existingSchedule ? existingSchedule.alarms.map(a => a.offsetMinutes) : [30],
-  );
-
   // При редактировании дата старта берётся из сохранённого графика напрямую
   // (стрелки сдвига цикла при этом временно не пересчитывают её заново).
   // При создании нового — по умолчанию выравниваем цикл так, чтобы первый
@@ -213,9 +192,6 @@ const initialSignatureRef = useRef(
     name: existingSchedule?.name ?? presetName,
     color: existingSchedule?.color ?? SCHEDULE_COLORS[0],
     shiftStartTime: existingSchedule ? existingSchedule.shiftStartTime.slice(0, 5) : '08:00',
-    alarmOffsets: existingSchedule
-      ? [...existingSchedule.alarms.map(a => a.offsetMinutes)].sort((a, b) => b - a)
-      : [30],
     overrides: serializeOverrides({}),
     startOffset: initialStartOffsetRef.current,
   }),
@@ -226,25 +202,16 @@ const hasChanges = useMemo(() => {
     name,
     color: selectedColor,
     shiftStartTime: formatTime(shiftTime),
-    alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
     overrides: serializeOverrides(overrides),
     startOffset,
   });
   return currentSignature !== initialSignatureRef.current;
-}, [name, selectedColor, shiftTime, alarmOffsets, overrides, startOffset]);
+}, [name, selectedColor, shiftTime, overrides, startOffset]);
 
   const showSaveButton = !isEditing || hasChanges;
 
   function dateKey(d: Date) {
     return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-  }
-
-  function toggleOffset(minutes: number) {
-    setAlarmOffsets(prev =>
-      prev.includes(minutes)
-        ? prev.filter(m => m !== minutes)
-        : [...prev, minutes].sort((a, b) => b - a),
-    );
   }
 
   function handleDayTap(day: Date) {
@@ -348,7 +315,6 @@ const hasChanges = useMemo(() => {
         name,
         color: selectedColor,
         shiftStartTime: formatTime(shiftTime),
-        alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
         overrides: serializeOverrides(nextOverrides),
         startOffset,
       });
@@ -397,7 +363,6 @@ const hasChanges = useMemo(() => {
               name,
               color: selectedColor,
               shiftStartTime: formatTime(shiftTime),
-              alarmOffsets: [...alarmOffsets].sort((a, b) => b - a),
               overrides: serializeOverrides(nextOverrides),
               startOffset,
             });
@@ -418,12 +383,17 @@ const hasChanges = useMemo(() => {
       sourcePresetId: presetId === 'custom' ? null : presetId,
       startDate: `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`,
       shiftStartTime: `${String(shiftTime.getHours()).padStart(2, '0')}:${String(shiftTime.getMinutes()).padStart(2, '0')}:00`,
-      alarms: alarmOffsets.map(offsetMinutes => ({
-        id: uuid.v4() as string,
-        offsetMinutes,
-        ringtoneId: 'default',
-        vibration: true,
-      })),
+            // Теперь одно простое правило: будильник звонит ровно в указанное
+      // время, без смещений — offsetMinutes всегда 0. Поле в Rust-модели
+      // осталось прежним, здесь просто упростили сам UX выбора времени.
+      alarms: [
+        {
+          id: uuid.v4() as string,
+          offsetMinutes: 0,
+          ringtoneId: 'default',
+          vibration: true,
+        },
+      ],
       isActive: existingSchedule?.isActive ?? false,
       isPaused: existingSchedule?.isPaused ?? false,
     };
@@ -479,7 +449,7 @@ const hasChanges = useMemo(() => {
         ))}
       </View>
 
-      <Text style={styles.sectionLabel}>Начало смены</Text>
+      <Text style={styles.sectionLabel}>Время будильника</Text>
       <Pressable style={styles.timeRow} onPress={() => setIsPickerOpen(true)}>
         <Clock color={colors.textSecondary} size={20} />
         <Text style={styles.timeValue}>{formatTime(shiftTime)}</Text>
@@ -499,39 +469,6 @@ const hasChanges = useMemo(() => {
           }}
           onDismiss={() => setIsPickerOpen(false)}
         />
-      )}
-
-      <Text style={styles.sectionLabel}>Будить до смены</Text>
-      <View style={styles.offsetsWrap}>
-        {OFFSET_OPTIONS.map(minutes => {
-          const isSelected = alarmOffsets.includes(minutes);
-          return (
-            <Pressable
-              key={minutes}
-              style={[styles.offsetChip, isSelected && styles.offsetChipSelected]}
-              onPress={() => toggleOffset(minutes)}
-            >
-              <Text style={[styles.offsetChipText, isSelected && styles.offsetChipTextSelected]}>
-                {formatOffset(minutes)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {alarmOffsets.length > 0 ? (
-        <View style={styles.alarmPreview}>
-          {alarmOffsets.map(minutes => (
-            <View key={minutes} style={styles.alarmPreviewRow}>
-              <Text style={styles.alarmPreviewTime}>
-                {formatTime(alarmTimeFor(shiftTime, minutes))}
-              </Text>
-              <Text style={styles.alarmPreviewLabel}>за {formatOffset(minutes)} до смены</Text>
-            </View>
-          ))}
-        </View>
-      ) : (
-        <Text style={styles.emptyAlarmsHint}>Выбери хотя бы один будильник</Text>
       )}
 
 {existingSchedule && (
@@ -779,12 +716,8 @@ const hasChanges = useMemo(() => {
         </Pressable>
         </View>
 
-{showSaveButton && (
-        <Pressable
-          style={[styles.saveButton, alarmOffsets.length === 0 && styles.saveButtonDisabled]}
-          disabled={alarmOffsets.length === 0}
-          onPress={handleSave}
-        >
+        {showSaveButton && (
+        <Pressable style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>
             {isEditing ? 'Сохранить изменения' : 'Сохранить график'}
           </Text>
@@ -823,21 +756,6 @@ const styles = StyleSheet.create({
   },
   timeValue: { ...typography.headline, fontSize: 22, color: colors.textPrimary, flex: 1 },
   timeHint: { ...typography.caption, color: colors.accent },
-  offsetsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  offsetChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-  },
-  offsetChipSelected: { backgroundColor: colors.accent },
-  offsetChipText: { ...typography.caption, color: colors.textSecondary },
-  offsetChipTextSelected: { color: colors.background, fontWeight: '600' },
-  alarmPreview: { marginTop: spacing.md, gap: spacing.sm },
-  alarmPreviewRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
-  alarmPreviewTime: { ...typography.headline, fontSize: 20, color: colors.textPrimary },
-  alarmPreviewLabel: { ...typography.caption, color: colors.textSecondary },
-  emptyAlarmsHint: { ...typography.caption, color: colors.accent, marginTop: spacing.md },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
