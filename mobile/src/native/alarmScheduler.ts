@@ -46,3 +46,15 @@ export function requestExactAlarmPermission(): Promise<void> {
   export function cancelSlot(slot: number): Promise<void> {
     return AlarmScheduler.cancelSlot(slot);
   }
+
+  export function getManufacturer(): Promise<string> {
+    return AlarmScheduler.getManufacturer();
+  }
+  
+  export function getFlag(key: string): Promise<boolean> {
+    return AlarmScheduler.getFlag(key);
+  }
+  
+  export function setFlag(key: string, value: boolean): Promise<void> {
+    return AlarmScheduler.setFlag(key, value);
+  }

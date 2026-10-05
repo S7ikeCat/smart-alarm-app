@@ -132,6 +132,29 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
 
     // --- Планирование -------------------------------------------------------
 
+    
+
+        // --- Служебное для онбординга -------------------------------------------
+
+    @ReactMethod
+    fun getManufacturer(promise: Promise) {
+        promise.resolve(Build.MANUFACTURER.lowercase())
+    }
+
+    private fun prefs() =
+        reactApplicationContext.getSharedPreferences("alarm_prefs", android.content.Context.MODE_PRIVATE)
+
+    @ReactMethod
+    fun getFlag(key: String, promise: Promise) {
+        promise.resolve(prefs().getBoolean(key, false))
+    }
+
+    @ReactMethod
+    fun setFlag(key: String, value: Boolean, promise: Promise) {
+        prefs().edit().putBoolean(key, value).apply()
+        promise.resolve(null)
+    }
+
     /** Что откроется, если пользователь нажмёт на значок будильника в шторке. */
     private fun buildShowIntent(): PendingIntent {
         val launchIntent = Intent(reactApplicationContext, MainActivity::class.java)

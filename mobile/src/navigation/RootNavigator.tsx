@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { View } from 'react-native';
+import { PermissionsOnboardingScreen } from '../screens/onboarding/PermissionsOnboardingScreen';
+import { checkAllPermissions } from '../native/permissions';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -78,7 +81,7 @@ function CalendarStackNavigator() {
   );
 }
 
-export function RootNavigator() {
+function AppNavigator() {
   return (
     <NavigationContainer>
       <Tab.Navigator
@@ -128,4 +131,28 @@ export function RootNavigator() {
       </Tab.Navigator>
     </NavigationContainer>
   );
+}
+
+
+/**
+ * Входная точка: пока не выданы все разрешения, вместо вкладок показываем
+ * экран настройки. Он появляется при каждом запуске, если чего-то не хватает
+ * (и вернётся, если разрешение потом отозвать), а не только в первый раз.
+ */
+export function RootNavigator() {
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    checkAllPermissions().then(state => setNeedsOnboarding(!state.requiredGranted));
+  }, []);
+
+  if (needsOnboarding === null) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
+
+  if (needsOnboarding) {
+    return <PermissionsOnboardingScreen onFinish={() => setNeedsOnboarding(false)} />;
+  }
+
+  return <AppNavigator />;
 }
