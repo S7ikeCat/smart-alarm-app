@@ -2,67 +2,57 @@ package com.mobile
 
 import android.app.Activity
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 
 /**
- * Полноэкранный экран звонка будильника — свой, но стилизованный под
- * привычный системный паттерн (крупное время по центру, кнопки снизу).
- * Фаза 1: минимальная версия для проверки всей цепочки — время +
- * "Выключить" + "Отложить" (пока без реальной логики откладывания).
+ * Экран звонка: только интерфейс. Мелодию и вибрацию ведёт AlarmService,
+ * поэтому экран лишь отправляет сервису команды "выключить" и "отложить".
  */
 class AlarmRingActivity : Activity() {
-    private var mediaPlayer: MediaPlayer? = null
 
-        override fun onCreate(savedInstanceState: Bundle?) {
+    // Сервис просит закрыть экран, если будильник выключили из уведомления.
+    private val dismissReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            finish()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         android.util.Log.d("AlarmDebug", "AlarmRingActivity.onCreate начался")
 
+        // Показываем экран ПОВЕРХ блокировки, но блокировку не снимаем:
+        // выключить будильник должно быть можно без ввода PIN.
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD,
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        ContextCompat.registerReceiver(
+            this,
+            dismissReceiver,
+            IntentFilter(AlarmService.ACTION_DISMISSED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
-        }
 
-                android.util.Log.d("AlarmDebug", "перед startRinging")
-        try {
-            startRinging()
-            android.util.Log.d("AlarmDebug", "startRinging успешно")
-        } catch (e: Exception) {
-            android.util.Log.d("AlarmDebug", "startRinging УПАЛ: ${e.message}")
-        }
-
-        try {
-            startVibrating()
-            android.util.Log.d("AlarmDebug", "startVibrating успешно")
-        } catch (e: Exception) {
-            android.util.Log.d("AlarmDebug", "startVibrating УПАЛ: ${e.message}")
-        }
+        val label = intent.getStringExtra("label") ?: "Будильник"
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(Color.parseColor("#1A1614"))
         }
-
-                val label = intent.getStringExtra("label") ?: "Будильник"
 
         val timeText = TextView(this).apply {
             text = android.text.format.DateFormat.getTimeFormat(this@AlarmRingActivity)
@@ -81,12 +71,12 @@ class AlarmRingActivity : Activity() {
 
         val stopButton = Button(this).apply {
             text = "Выключить"
-            setOnClickListener { stopAndFinish() }
+            setOnClickListener { sendCommand(AlarmService.ACTION_STOP) }
         }
 
         val snoozeButton = Button(this).apply {
-            text = "Отложить на 5 мин"
-            setOnClickListener { stopAndFinish() } // TODO: реальное откладывание — следующая фаза
+            text = "Отложить"
+            setOnClickListener { sendCommand(AlarmService.ACTION_SNOOZE) }
         }
 
         layout.addView(timeText)
@@ -94,54 +84,19 @@ class AlarmRingActivity : Activity() {
         layout.addView(stopButton)
         layout.addView(snoozeButton)
         setContentView(layout)
-        android.util.Log.d("AlarmDebug", "setContentView выполнен, onCreate завершён")
     }
 
-    private fun startRinging() {
-        val alarmUri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-
-        mediaPlayer = MediaPlayer().apply {
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-            )
-            setDataSource(this@AlarmRingActivity, alarmUri)
-            isLooping = true
-            prepare()
-            start()
-        }
-    }
-
-    private fun startVibrating() {
-        val pattern = longArrayOf(0, 500, 500)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibratorManager.defaultVibrator.vibrate(VibrationEffect.createWaveform(pattern, 0))
-        } else {
-            @Suppress("DEPRECATION")
-            val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-            vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0))
-        }
-    }
-
-    private fun stopAndFinish() {
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        mediaPlayer = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator.cancel()
-        } else {
-            @Suppress("DEPRECATION")
-            (getSystemService(VIBRATOR_SERVICE) as Vibrator).cancel()
-        }
+    private fun sendCommand(action: String) {
+        startService(Intent(this, AlarmService::class.java).setAction(action))
         finish()
     }
 
     override fun onDestroy() {
-        mediaPlayer?.release()
+        try {
+            unregisterReceiver(dismissReceiver)
+        } catch (e: Exception) {
+            // уже отписан
+        }
         super.onDestroy()
     }
 }

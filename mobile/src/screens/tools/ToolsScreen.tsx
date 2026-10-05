@@ -6,23 +6,31 @@ import { spacing } from '../../theme/spacing';
 import {
   hasExactAlarmPermission,
   requestExactAlarmPermission,
+  hasFullScreenIntentPermission,
+  requestFullScreenIntentPermission,
   scheduleTestAlarm,
 } from '../../native/alarmScheduler';
 
 export function ToolsScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [hasFullScreenPermission, setHasFullScreenPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
     hasExactAlarmPermission().then(setHasPermission);
+    hasFullScreenIntentPermission().then(setHasFullScreenPermission);
   }, []);
 
   async function handleRequestPermission() {
     await requestExactAlarmPermission();
-    // Пользователь уходит в системные настройки и возвращается — перепроверим
-    // после небольшой паузы (сам колбэк "вернулся из настроек" тут не ловим,
-    // это Фаза 1, упрощённо).
     setTimeout(() => {
       hasExactAlarmPermission().then(setHasPermission);
+    }, 1000);
+  }
+
+  async function handleRequestFullScreenPermission() {
+    await requestFullScreenIntentPermission();
+    setTimeout(() => {
+      hasFullScreenIntentPermission().then(setHasFullScreenPermission);
     }, 1000);
   }
 
@@ -46,7 +54,18 @@ export function ToolsScreen() {
 
       {!hasPermission && (
         <Pressable style={styles.button} onPress={handleRequestPermission}>
-          <Text style={styles.buttonText}>Запросить разрешение</Text>
+          <Text style={styles.buttonText}>Запросить разрешение на точные будильники</Text>
+        </Pressable>
+      )}
+
+      <Text style={styles.status}>
+        Разрешение на полноэкранный показ:{' '}
+        {hasFullScreenPermission === null ? '...' : hasFullScreenPermission ? 'есть ✅' : 'нет ❌'}
+      </Text>
+
+      {!hasFullScreenPermission && (
+        <Pressable style={styles.button} onPress={handleRequestFullScreenPermission}>
+          <Text style={styles.buttonText}>Запросить разрешение на полноэкранный показ</Text>
         </Pressable>
       )}
 

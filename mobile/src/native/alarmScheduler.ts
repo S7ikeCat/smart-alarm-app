@@ -10,6 +10,26 @@ export function requestExactAlarmPermission(): Promise<void> {
     return AlarmScheduler.requestExactAlarmPermission();
   }
   
+  export function hasFullScreenIntentPermission(): Promise<boolean> {
+    return AlarmScheduler.hasFullScreenIntentPermission();
+  }
+  
+  export function requestFullScreenIntentPermission(): Promise<void> {
+    return AlarmScheduler.requestFullScreenIntentPermission();
+  }
+
+  export function isIgnoringBatteryOptimizations(): Promise<boolean> {
+    return AlarmScheduler.isIgnoringBatteryOptimizations();
+  }
+  
+  export function requestIgnoreBatteryOptimizations(): Promise<void> {
+    return AlarmScheduler.requestIgnoreBatteryOptimizations();
+  }
+  
+  export function openOemBackgroundSettings(): Promise<void> {
+    return AlarmScheduler.openOemBackgroundSettings();
+  }
+  
   export function scheduleTestAlarm(delaySeconds: number): Promise<void> {
     return AlarmScheduler.scheduleTestAlarm(delaySeconds);
   }
