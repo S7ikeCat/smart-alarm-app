@@ -58,3 +58,7 @@ export function requestExactAlarmPermission(): Promise<void> {
   export function setFlag(key: string, value: boolean): Promise<void> {
     return AlarmScheduler.setFlag(key, value);
   }
+
+  export function syncAlarmsNow(): Promise<void> {
+    return AlarmScheduler.syncAlarmsNow();
+  }

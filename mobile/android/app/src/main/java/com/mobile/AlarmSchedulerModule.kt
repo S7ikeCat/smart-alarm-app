@@ -134,7 +134,18 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
 
     
 
-        // --- Служебное для онбординга -------------------------------------------
+            /** Единая нативная синхронизация будильников (см. AlarmSyncer). */
+    @ReactMethod
+    fun syncAlarmsNow(promise: Promise) {
+        try {
+            AlarmSyncer.sync(reactApplicationContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("SYNC_ERROR", e.message, e)
+        }
+    }
+
+    // --- Служебное для онбординга -------------------------------------------
 
     @ReactMethod
     fun getManufacturer(promise: Promise) {
