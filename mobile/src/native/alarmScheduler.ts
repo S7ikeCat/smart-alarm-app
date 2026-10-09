@@ -62,3 +62,11 @@ export function requestExactAlarmPermission(): Promise<void> {
   export function syncAlarmsNow(): Promise<void> {
     return AlarmScheduler.syncAlarmsNow();
   }
+
+  export function readJournal(): Promise<string> {
+    return AlarmScheduler.readJournal();
+  }
+  
+  export function clearJournal(): Promise<void> {
+    return AlarmScheduler.clearJournal();
+  }

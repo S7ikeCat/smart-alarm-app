@@ -32,6 +32,7 @@ class AlarmRingActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         android.util.Log.d("AlarmDebug", "AlarmRingActivity.onCreate начался")
+        AlarmJournal.log(this, "экран звонка показан")
 
         // Показываем экран ПОВЕРХ блокировки, но блокировку не снимаем:
         // выключить будильник должно быть можно без ввода PIN.

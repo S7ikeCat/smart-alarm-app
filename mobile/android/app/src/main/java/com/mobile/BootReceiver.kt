@@ -6,23 +6,23 @@ import android.content.Intent
 
 /**
  * Android стирает все будильники приложения при перезагрузке телефона и при
- * обновлении самого приложения. Этот приёмник ставит их заново без участия
- * JS, прямо из базы.
+ * обновлении самого приложения. Этот приёмник ставит их заново без участия JS.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action
-        if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) {
-            return
+        val reason = when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED -> "перезагрузка"
+            Intent.ACTION_MY_PACKAGE_REPLACED -> "обновление приложения"
+            else -> return
         }
-        android.util.Log.d("AlarmDebug", "BootReceiver: $action")
+        AlarmJournal.log(context, "получено событие: $reason")
 
         val pending = goAsync()
         Thread {
             try {
-                AlarmSyncer.sync(context.applicationContext)
+                AlarmSyncer.sync(context.applicationContext, reason)
             } catch (e: Exception) {
-                android.util.Log.d("AlarmDebug", "BootReceiver: синхронизация УПАЛА: ${e.message}")
+                AlarmJournal.log(context, "ОШИБКА синхронизации ($reason): ${e.message}")
             } finally {
                 pending.finish()
             }

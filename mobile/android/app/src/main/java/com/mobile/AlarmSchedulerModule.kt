@@ -22,7 +22,31 @@ import com.facebook.react.bridge.ReactMethod
 class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
-    override fun getName() = "AlarmScheduler"
+        override fun getName() = "AlarmScheduler"
+
+    /**
+     * Открывает системный экран настроек, а если он недоступен на этом
+     * телефоне, то страницу приложения, а если и она не открылась, то общие
+     * настройки. Исключение наружу не выбрасывает: экран разрешений нельзя
+     * пропустить, поэтому нажатие кнопки не должно ронять приложение.
+     */
+    private fun openSettingsSafely(primary: Intent) {
+        val packageUri = Uri.parse("package:${reactApplicationContext.packageName}")
+        val candidates = listOf(
+            primary,
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(packageUri),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        for (intent in candidates) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                reactApplicationContext.startActivity(intent)
+                return
+            } catch (e: Exception) {
+                android.util.Log.d("AlarmDebug", "настройки не открылись (${intent.action}): ${e.message}")
+            }
+        }
+    }
 
     // --- Разрешения ---------------------------------------------------------
 
@@ -39,11 +63,11 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun requestExactAlarmPermission(promise: Promise) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                data = Uri.parse("package:${reactApplicationContext.packageName}")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            reactApplicationContext.startActivity(intent)
+            openSettingsSafely(
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:${reactApplicationContext.packageName}")
+                },
+            )
         }
         promise.resolve(null)
     }
@@ -58,14 +82,14 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    @ReactMethod
+        @ReactMethod
     fun requestFullScreenIntentPermission(promise: Promise) {
         if (Build.VERSION.SDK_INT >= 34) {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
-                data = Uri.parse("package:${reactApplicationContext.packageName}")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            reactApplicationContext.startActivity(intent)
+            openSettingsSafely(
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                    data = Uri.parse("package:${reactApplicationContext.packageName}")
+                },
+            )
         }
         promise.resolve(null)
     }
@@ -78,11 +102,11 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun requestIgnoreBatteryOptimizations(promise: Promise) {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${reactApplicationContext.packageName}")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        reactApplicationContext.startActivity(intent)
+        openSettingsSafely(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${reactApplicationContext.packageName}")
+            },
+        )
         promise.resolve(null)
     }
 
@@ -94,11 +118,12 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
      */
     @ReactMethod
     fun openOemBackgroundSettings(promise: Promise) {
-        val candidates = listOf(
+                val candidates = listOf(
+            // Экран «Запуск приложений» на твоей модели (подтверждён через adb).
             Intent().setComponent(
                 ComponentName(
-                    "com.hihonor.systemmanager",
-                    "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+                    "com.huawei.systemmanager",
+                    "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity",
                 ),
             ),
             Intent().setComponent(
@@ -107,15 +132,15 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
                     "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
                 ),
             ),
+            // Запасные варианты для других моделей.
             Intent().setComponent(
                 ComponentName(
-                    "com.huawei.systemmanager",
-                    "com.huawei.systemmanager.optimize.process.ProtectActivity",
+                    "com.hihonor.systemmanager",
+                    "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
                 ),
             ),
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${reactApplicationContext.packageName}")
-            },
+            // Общие настройки: дальше пользователь идёт вручную по инструкции.
+            Intent(Settings.ACTION_SETTINGS),
         )
 
         for (intent in candidates) {
@@ -138,11 +163,22 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun syncAlarmsNow(promise: Promise) {
         try {
-            AlarmSyncer.sync(reactApplicationContext)
+            AlarmSyncer.sync(reactApplicationContext, "приложение")
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("SYNC_ERROR", e.message, e)
         }
+    }
+
+    @ReactMethod
+    fun readJournal(promise: Promise) {
+        promise.resolve(AlarmJournal.read(reactApplicationContext))
+    }
+
+    @ReactMethod
+    fun clearJournal(promise: Promise) {
+        AlarmJournal.clear(reactApplicationContext)
+        promise.resolve(null)
     }
 
     // --- Служебное для онбординга -------------------------------------------

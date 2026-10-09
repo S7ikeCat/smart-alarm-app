@@ -5,17 +5,16 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import java.io.File
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import uniffi.alarm_core.*
 
 /**
  * Единственная реализация синхронизации будильников с AlarmManager.
- * Работает целиком в нативном коде и не зависит от JS, поэтому её можно
- * вызывать из приёмников перезагрузки и обновления, когда React не запущен.
- *
- * Схема: фиксированный пул слотов 0..SLOT_COUNT-1. Берём ближайшие будильники
- * из активного графика и событий, раскладываем по слотам по порядку времени,
- * а свободные слоты явно отменяем. Слот 9999 (отложенный будильник) не трогаем.
+ * Работает целиком в нативном коде и не зависит от JS.
+ * Пул слотов 0..SLOT_COUNT-1; слот 9999 (отложенный будильник) не трогаем.
  */
 object AlarmSyncer {
     const val SLOT_COUNT = 20
@@ -23,7 +22,8 @@ object AlarmSyncer {
 
     private class Candidate(val id: String, val label: String, val triggerAtMillis: Long)
 
-    // Тот же путь, что в AlarmCoreModule.dbPath(): filesDir/alarm_core.db
+    private val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.US)
+
     private fun dbPath(context: Context): String =
         File(context.filesDir, "alarm_core.db").absolutePath
 
@@ -41,7 +41,7 @@ object AlarmSyncer {
     }
 
     @Synchronized
-    fun sync(context: Context) {
+    fun sync(context: Context, reason: String) {
         val path = dbPath(context)
         val now = System.currentTimeMillis()
 
@@ -78,7 +78,15 @@ object AlarmSyncer {
                 cancelSlot(context, slot)
             }
         }
-        android.util.Log.d("AlarmDebug", "AlarmSyncer: поставлено будильников — ${upcoming.size}")
+
+        val nearest = upcoming.firstOrNull()
+        val nearestText = if (nearest != null) {
+            "ближайший ${timeFormat.format(Date(nearest.triggerAtMillis))} «${nearest.label}»"
+        } else {
+            "будильников нет"
+        }
+        AlarmJournal.log(context, "синхронизация ($reason): поставлено ${upcoming.size}, $nearestText")
+        android.util.Log.d("AlarmDebug", "AlarmSyncer ($reason): поставлено ${upcoming.size}")
     }
 
     private fun scheduleInSlot(context: Context, slot: Int, candidate: Candidate) {
@@ -86,6 +94,7 @@ object AlarmSyncer {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("alarmId", candidate.id)
             putExtra("label", candidate.label)
+            putExtra("triggerAt", candidate.triggerAtMillis)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context, slot, intent,

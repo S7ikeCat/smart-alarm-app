@@ -103,12 +103,14 @@ export function PermissionsOnboardingScreen({ onFinish }: Props) {
       key: 'oem',
       title: 'Автозапуск и работа в фоне',
       description:
-        'У твоего телефона есть собственная «экономия батареи», которая усыпляет приложения. ' +
-        'Откроются настройки: найди это приложение, выключи «Управлять автоматически» и включи ' +
-        '«Автозапуск», «Вторичный запуск» и «Работа в фоне». Потом вернись и нажми «Я всё включил».',
-        granted: state.oemConfirmed,
-        recommended: true,
-        actionLabel: 'Открыть настройки приложения',
+        'У телефона есть собственная «экономия батареи», которая усыпляет приложения, и из ' +
+        'приложения открыть её нельзя, поэтому сделай это вручную:\n\n' +
+        '1. Открой Настройки → Батарея → Запуск приложений.\n' +
+        '2. Найди это приложение и выключи «Управлять автоматически».\n' +
+        '3. В окне включи «Автозапуск», «Вторичный запуск» и «Работа в фоне».\n' +
+        '4. Вернись сюда и нажми «Я всё включил».',
+      granted: state.oemConfirmed,
+      actionLabel: 'Открыть настройки',
       onAction: () => {
         openOemBackgroundSettings();
       },
@@ -166,10 +168,7 @@ export function PermissionsOnboardingScreen({ onFinish }: Props) {
         disabled={!state.requiredGranted}
           onPress={onFinish}
         >
-          <Text style={styles.continueButtonText}>Продолжить</Text>
-        </Pressable>
-        <Pressable onPress={onFinish} hitSlop={8}>
-          <Text style={styles.skipText}>Пропустить пока</Text>
+        <Text style={styles.continueButtonText}>Продолжить</Text>
         </Pressable>
       </View>
     </View>
@@ -202,12 +201,13 @@ const styles = StyleSheet.create({
   cardTitle: { ...typography.body, color: colors.textPrimary, fontWeight: '600', flex: 1 },
   recommendedTag: { ...typography.caption, fontSize: 11, color: colors.textSecondary },
   cardDescription: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
-  cardButtons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  cardButtons: { gap: spacing.sm, marginTop: spacing.md },
   actionButton: {
     backgroundColor: colors.accent,
     borderRadius: 10,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
+    alignItems: 'center',
   },
   actionButtonText: { ...typography.caption, fontWeight: '600', color: colors.background },
   secondaryButton: {
@@ -215,6 +215,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
+    alignItems: 'center',
   },
   secondaryButtonText: { ...typography.caption, color: colors.textPrimary },
   footer: {
@@ -234,5 +235,4 @@ const styles = StyleSheet.create({
   },
   continueButtonDisabled: { opacity: 0.4 },
   continueButtonText: { ...typography.body, fontWeight: '600', color: colors.background },
-  skipText: { ...typography.caption, color: colors.textSecondary },
 });

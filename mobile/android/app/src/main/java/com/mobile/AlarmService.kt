@@ -19,19 +19,22 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Сервис звонка: именно он играет мелодию и вибрирует, а не экран.
- * Поэтому звонок не зависит от того, пустит ли оболочка (Magic UI)
- * полноэкранную Activity поверх блокировки. Управлять будильником можно
- * и с экрана, и с кнопок в самом уведомлении.
+ * Каждый шаг пишется в AlarmJournal.
  */
 class AlarmService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var alarmId = ""
     private var alarmLabel = "Будильник"
     private val handler = Handler(Looper.getMainLooper())
-    private val autoStopRunnable = Runnable { dismissAlarm() }
+    private val autoStopRunnable = Runnable {
+        dismissAlarm("автоостановка: никто не отреагировал за 10 минут")
+    }
 
     companion object {
         const val ACTION_START = "com.mobile.ALARM_START"
@@ -42,8 +45,7 @@ class AlarmService : Service() {
         private const val CHANNEL_ID = "alarm_ring_channel"
         private const val NOTIFICATION_ID = 1
 
-        // Отдельный номер слота для отложенного будильника, вне диапазона
-        // 0..19, который использует синхронизация (alarmSync.ts).
+        // Номер слота отложенного будильника — вне диапазона 0..19 синхронизации.
         private const val SNOOZE_REQUEST_CODE = 9999
         private const val SNOOZE_MINUTES = 5
 
@@ -51,14 +53,16 @@ class AlarmService : Service() {
         private const val AUTO_STOP_MS = 10 * 60 * 1000L
     }
 
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> dismissAlarm()
+            ACTION_STOP -> dismissAlarm("выключен пользователем")
             ACTION_SNOOZE -> {
                 scheduleSnooze()
-                dismissAlarm()
+                dismissAlarm("отложен")
             }
             else -> startAlarm(intent)
         }
@@ -68,7 +72,7 @@ class AlarmService : Service() {
     private fun startAlarm(intent: Intent?) {
         alarmId = intent?.getStringExtra("alarmId") ?: ""
         alarmLabel = intent?.getStringExtra("label") ?: "Будильник"
-        android.util.Log.d("AlarmDebug", "AlarmService: старт звонка '$alarmLabel'")
+        AlarmJournal.log(this, "сервис: звонок начался «$alarmLabel»")
 
         createChannelIfNeeded()
         val notification = buildNotification()
@@ -77,17 +81,16 @@ class AlarmService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        android.util.Log.d("AlarmDebug", "AlarmService: startForeground выполнен")
 
         try {
             startRinging()
         } catch (e: Exception) {
-            android.util.Log.d("AlarmDebug", "AlarmService: startRinging УПАЛ: ${e.message}")
+            AlarmJournal.log(this, "ОШИБКА мелодии: ${e.message}")
         }
         try {
             startVibrating()
         } catch (e: Exception) {
-            android.util.Log.d("AlarmDebug", "AlarmService: startVibrating УПАЛ: ${e.message}")
+            AlarmJournal.log(this, "ОШИБКА вибрации: ${e.message}")
         }
 
         handler.postDelayed(autoStopRunnable, AUTO_STOP_MS)
@@ -189,9 +192,11 @@ class AlarmService : Service() {
     private fun scheduleSnooze() {
         try {
             val alarmManager = getSystemService(AlarmManager::class.java)
+            val triggerAt = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
             val snoozeIntent = Intent(this, AlarmReceiver::class.java).apply {
                 putExtra("alarmId", alarmId)
                 putExtra("label", alarmLabel)
+                putExtra("triggerAt", triggerAt)
             }
             val pendingIntent = PendingIntent.getBroadcast(
                 this, SNOOZE_REQUEST_CODE, snoozeIntent,
@@ -201,16 +206,16 @@ class AlarmService : Service() {
                 this, 0, Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            val triggerAt = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
             alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), pendingIntent)
-            android.util.Log.d("AlarmDebug", "AlarmService: отложено до $triggerAt")
+            AlarmJournal.log(this, "сервис: отложено на $SNOOZE_MINUTES мин, снова в ${timeFormat.format(Date(triggerAt))}")
         } catch (e: Exception) {
-            android.util.Log.d("AlarmDebug", "AlarmService: snooze УПАЛ: ${e.message}")
+            AlarmJournal.log(this, "ОШИБКА откладывания: ${e.message}")
         }
     }
 
     /** Гасит звонок, убирает уведомление, просит закрыться открытый экран. */
-    private fun dismissAlarm() {
+    private fun dismissAlarm(reason: String) {
+        AlarmJournal.log(this, "сервис: звонок завершён — $reason")
         handler.removeCallbacks(autoStopRunnable)
         stopRingingAndVibrating()
         stopForeground(STOP_FOREGROUND_REMOVE)

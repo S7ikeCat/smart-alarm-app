@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, Pressable, Alert, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
@@ -9,30 +10,28 @@ import {
   hasFullScreenIntentPermission,
   requestFullScreenIntentPermission,
   scheduleTestAlarm,
+  readJournal,
+  clearJournal,
 } from '../../native/alarmScheduler';
 
 export function ToolsScreen() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [hasFullScreenPermission, setHasFullScreenPermission] = useState<boolean | null>(null);
+  const [hasExact, setHasExact] = useState<boolean | null>(null);
+  const [hasFullScreen, setHasFullScreen] = useState<boolean | null>(null);
+  const [journal, setJournal] = useState('');
 
-  useEffect(() => {
-    hasExactAlarmPermission().then(setHasPermission);
-    hasFullScreenIntentPermission().then(setHasFullScreenPermission);
+  const refresh = useCallback(() => {
+    hasExactAlarmPermission().then(setHasExact);
+    hasFullScreenIntentPermission().then(setHasFullScreen);
+    readJournal()
+      .then(text => setJournal(text.split('\n').reverse().join('\n'))) // новые сверху
+      .catch(error => setJournal(`Не удалось прочитать журнал: ${error}`));
   }, []);
 
-  async function handleRequestPermission() {
-    await requestExactAlarmPermission();
-    setTimeout(() => {
-      hasExactAlarmPermission().then(setHasPermission);
-    }, 1000);
-  }
-
-  async function handleRequestFullScreenPermission() {
-    await requestFullScreenIntentPermission();
-    setTimeout(() => {
-      hasFullScreenIntentPermission().then(setHasFullScreenPermission);
-    }, 1000);
-  }
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 
   async function handleTestAlarm() {
     try {
@@ -43,67 +42,79 @@ export function ToolsScreen() {
     }
   }
 
+  async function handleClearJournal() {
+    await clearJournal();
+    refresh();
+  }
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Инструменты</Text>
 
       <Text style={styles.status}>
-        Разрешение на точные будильники:{' '}
-        {hasPermission === null ? '...' : hasPermission ? 'есть ✅' : 'нет ❌'}
+        Точные будильники: {hasExact === null ? '...' : hasExact ? 'есть ✅' : 'нет ❌'}
+        {'\n'}
+        Показ поверх блокировки: {hasFullScreen === null ? '...' : hasFullScreen ? 'есть ✅' : 'нет ❌'}
       </Text>
 
-      {!hasPermission && (
-        <Pressable style={styles.button} onPress={handleRequestPermission}>
-          <Text style={styles.buttonText}>Запросить разрешение на точные будильники</Text>
+      {hasExact === false && (
+        <Pressable style={styles.button} onPress={() => requestExactAlarmPermission()}>
+          <Text style={styles.buttonText}>Разрешить точные будильники</Text>
+        </Pressable>
+      )}
+      {hasFullScreen === false && (
+        <Pressable style={styles.button} onPress={() => requestFullScreenIntentPermission()}>
+          <Text style={styles.buttonText}>Разрешить показ поверх блокировки</Text>
         </Pressable>
       )}
 
-      <Text style={styles.status}>
-        Разрешение на полноэкранный показ:{' '}
-        {hasFullScreenPermission === null ? '...' : hasFullScreenPermission ? 'есть ✅' : 'нет ❌'}
-      </Text>
-
-      {!hasFullScreenPermission && (
-        <Pressable style={styles.button} onPress={handleRequestFullScreenPermission}>
-          <Text style={styles.buttonText}>Запросить разрешение на полноэкранный показ</Text>
-        </Pressable>
-      )}
-
-      <Pressable
-        style={[styles.button, !hasPermission && styles.buttonDisabled]}
-        disabled={!hasPermission}
-        onPress={handleTestAlarm}
-      >
+      <Pressable style={styles.button} onPress={handleTestAlarm}>
         <Text style={styles.buttonText}>Тест: будильник через 10 сек</Text>
       </Pressable>
-    </View>
+
+      <View style={styles.journalHeader}>
+        <Text style={styles.sectionTitle}>Журнал будильника</Text>
+        <View style={styles.journalButtons}>
+          <Pressable onPress={refresh} hitSlop={8}>
+            <Text style={styles.link}>Обновить</Text>
+          </Pressable>
+          <Pressable onPress={handleClearJournal} hitSlop={8}>
+            <Text style={styles.link}>Очистить</Text>
+          </Pressable>
+        </View>
+      </View>
+      <Text style={styles.journal}>{journal}</Text>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  title: {
-    ...typography.headline,
-    color: colors.textPrimary,
-  },
-  status: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.lg, gap: spacing.md },
+  title: { ...typography.headline, color: colors.textPrimary },
+  status: { ...typography.body, color: colors.textSecondary },
   button: {
     backgroundColor: colors.accent,
     borderRadius: 12,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
   },
-  buttonDisabled: { opacity: 0.4 },
   buttonText: { ...typography.body, fontWeight: '600', color: colors.background },
+  journalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  sectionTitle: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+  journalButtons: { flexDirection: 'row', gap: spacing.md },
+  link: { ...typography.caption, color: colors.accent },
+  journal: {
+    fontFamily: 'monospace',
+    fontSize: 11,
+    color: colors.textSecondary,
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: spacing.sm,
+  },
 });

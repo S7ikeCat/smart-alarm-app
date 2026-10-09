@@ -20,8 +20,9 @@ class MainApplication : Application(), ReactApplication {
     )
   }
 
-  override fun onCreate() {
+    override fun onCreate() {
     super.onCreate()
+    AlarmJournal.log(this, "процесс приложения запущен")
     loadReactNative(this)
   }
 }

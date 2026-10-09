@@ -59,8 +59,8 @@ export async function checkAllPermissions(): Promise<PermissionState> {
     batteryOptimization,
     oemRequired,
     oemConfirmed,
-        // Без этих трёх приложение работать не может, и мы умеем их проверить.
-        requiredGranted: notifications && exactAlarm && fullScreenIntent,
+            // oemConfirmed уже true на телефонах без агрессивной оболочки.
+    requiredGranted: notifications && exactAlarm && fullScreenIntent && oemConfirmed,
         allGranted:
           notifications && exactAlarm && fullScreenIntent && batteryOptimization && oemConfirmed,
       };
