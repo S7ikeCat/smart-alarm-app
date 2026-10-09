@@ -13,13 +13,22 @@ import {
   loadCustomEvents,
   deleteCustomEvent,
   loadSchedulePauses,
+  loadExtraAlarms,
+  generateExtraAlarms,
+  loadAlarmTimeOverrides,
   NativeWorkSchedule,
   NativeAlarmInstance,
   NativeCustomEvent,
+  NativeExtraAlarm,
+  NativeExtraAlarmInstance,
+  NativeAlarmTimeOverride,
 } from '../../native/alarmCore';
+import { DaySheet, DayDetails } from '../../components/DaySheet';
 import { startOfDay, addDays, isDateInAnyPause } from '../../utils/scheduleCalendar';
 import { syncSystemAlarms } from '../../native/alarmSync';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { dateToKey } from '../../utils/timeUtils';
+import { calendarChangeColor } from '../../theme/marks';
 
 const DAYS_TO_SHOW = 7;
 const ROW_GAP = spacing.sm;
@@ -28,9 +37,13 @@ const FAB_CLEARANCE = 72; // высота кнопки (56) + отступ, чт
 
 type DayRow = {
   date: Date;
-  isWork: boolean;
-  time: string | null;
-  event: NativeCustomEvent | null;
+  isWorkDay: boolean; // рабочий день ПО ГРАФИКУ (диванчик живёт на остальных, даже если там есть будильник)
+  hasAlarms: boolean; // в этот день хоть что-то зазвонит
+  hasCalendarChanges: boolean; // день изменён через календарь: будильник на дату или другое время
+  time: string | null; // самый ранний будильник дня
+  alarmCount: number; // сколько всего будильников в этот день
+  events: NativeCustomEvent[];
+  details: DayDetails;
   isPaused: boolean;
 };
 
@@ -77,6 +90,9 @@ export function CalendarScreen() {
   const [listAreaHeight, setListAreaHeight] = useState(0);
   const [now, setNow] = useState(new Date());
   const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+  const [extraAlarms, setExtraAlarms] = useState<NativeExtraAlarm[]>([]);
+  const [timeOverrides, setTimeOverrides] = useState<NativeAlarmTimeOverride[]>([]);
+  const [sheetDateKey, setSheetDateKey] = useState<string | null>(null);
 
   // Показ/скрытие кнопки "+" по НАПРАВЛЕНИЮ скролла, а не по его позиции —
   // специально не завязываем прозрачность на сами пиксели прокрутки (это
@@ -126,64 +142,93 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
   }, []);
 
   const loadCalendarData = useCallback(async () => {
-    const [schedules, alarms, events] = await Promise.all([
-    loadWorkSchedules(),
-    generateUpcomingAlarms(2),
-    loadCustomEvents(),
-  ]);
+    const [schedules, alarms, events, extraList, extraInstances] = await Promise.all([
+      loadWorkSchedules(),
+      generateUpcomingAlarms(2),
+      loadCustomEvents(),
+      loadExtraAlarms(),
+      generateExtraAlarms(2),
+    ]);
 
-  const active = schedules.find(s => s.isActive) ?? null;
-  setActiveSchedule(active);
+    const active = schedules.find(s => s.isActive) ?? null;
+    setActiveSchedule(active);
+    setExtraAlarms(extraList);
 
-  if (!active) {
-    setDays([]);
-    return;
-  }
-
-  const pauses = await loadSchedulePauses(active.id);
-
-    const earliestByDate = new Map<string, NativeAlarmInstance>();
-    for (const instance of alarms) {
-      const key = instance.date;
-      const existing = earliestByDate.get(key);
-      if (!existing || instance.timeLocal < existing.timeLocal) {
-        earliestByDate.set(key, instance);
-      }
+    if (!active) {
+      setDays([]);
+      setTimeOverrides([]);
+      return;
     }
 
-    const eventByDate = new Map<string, NativeCustomEvent>();
+    const [pauses, overrides] = await Promise.all([
+      loadSchedulePauses(active.id),
+      loadAlarmTimeOverrides(active.id),
+    ]);
+    setTimeOverrides(overrides);
+
+    const scheduleTimesByDate = new Map<string, string[]>();
+    for (const instance of alarms as NativeAlarmInstance[]) {
+      const list = scheduleTimesByDate.get(instance.date) ?? [];
+      list.push(instance.timeLocal);
+      scheduleTimesByDate.set(instance.date, list);
+    }
+
+    const extrasByDate = new Map<string, NativeExtraAlarmInstance[]>();
+    for (const extra of extraInstances) {
+      const list = extrasByDate.get(extra.date) ?? [];
+      list.push(extra);
+      extrasByDate.set(extra.date, list);
+    }
+
+    const eventsByDate = new Map<string, NativeCustomEvent[]>();
     for (const event of events) {
-      eventByDate.set(event.date, event);
+      const list = eventsByDate.get(event.date) ?? [];
+      list.push(event);
+      eventsByDate.set(event.date, list);
     }
+
+    const timeOverridesList = overrides;
+    // Метку "изменено через календарь" ставим только на разовые будильники и
+    // смену времени на дату — повторяющиеся (на все выходные и т.п.) это
+    // правило, а не правка конкретного дня, иначе метки залили бы весь список.
+    const oneDateIds = new Set(extraList.filter(a => a.kind === 'ONE_DATE').map(a => a.id));
 
     const today = startOfDay(new Date());
     const rows: DayRow[] = [];
 
     for (let i = 0; i < DAYS_TO_SHOW; i++) {
       const day = addDays(today, i);
-      const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-      const matchedAlarm = earliestByDate.get(key);
-      const matchedEvent = eventByDate.get(key) ?? null;
+      const key = dateToKey(day);
+      const scheduleTimes = scheduleTimesByDate.get(key) ?? [];
+      const dayExtras = extrasByDate.get(key) ?? [];
+      const dayEvents = eventsByDate.get(key) ?? [];
 
-      // "Симбиоз": если день рабочий — время смены остаётся главным (событие
-      // видно точкой рядом). Если день выходной, но есть событие со своим
-      // напоминанием — показываем ВРЕМЯ СОБЫТИЯ вместо пустого диванчика,
-      // а не два раздельных "числа" для одного и того же дня.
-      const eventHasReminder = matchedEvent?.reminderEnabled ?? false;
-      const isWork = matchedAlarm !== undefined || (matchedEvent !== null && eventHasReminder);
-      const time = matchedAlarm
-        ? matchedAlarm.timeLocal.slice(0, 5)
-        : matchedEvent && eventHasReminder
-        ? matchedEvent.timeLocal.slice(0, 5)
-        : null;
+      // Все моменты, когда в этот день реально зазвонит телефон: смена,
+      // дополнительные будильники и события с включённым напоминанием.
+      const ringTimes = [
+        ...scheduleTimes,
+        ...dayExtras.map(e => e.timeLocal),
+        ...dayEvents.filter(e => e.reminderEnabled).map(e => e.timeLocal),
+      ].sort();
 
-        rows.push({
-          date: day,
-          isWork,
-          time,
-          event: matchedEvent,
-          isPaused: isDateInAnyPause(day, pauses),
-        });
+      rows.push({
+        date: day,
+        isWorkDay: scheduleTimes.length > 0,
+        hasAlarms: ringTimes.length > 0,
+        hasCalendarChanges:
+          timeOverridesList.some(o => o.date === key) ||
+          dayExtras.some(e => oneDateIds.has(e.alarmId)),
+        time: ringTimes.length > 0 ? ringTimes[0].slice(0, 5) : null,
+        alarmCount: ringTimes.length,
+        events: dayEvents,
+        details: {
+          dateKey: key,
+          hasScheduleAlarms: scheduleTimes.length > 0,
+          extras: dayExtras,
+          events: dayEvents,
+        },
+        isPaused: isDateInAnyPause(day, pauses),
+      });
     }
 
     setDays(rows);
@@ -230,32 +275,33 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
     }, [isSelectionMode]),
   );
 
-  function toggleEventSelection(id: string) {
+  function toggleRowSelection(row: DayRow) {
+    const ids = row.events.map(e => e.id);
     setSelectedEventIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+      const allSelected = ids.every(id => next.has(id));
+      for (const id of ids) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
       }
       return next;
     });
   }
 
   function handleLongPressRow(item: DayRow) {
-    if (!item.event) return; // нечего выделять — на этот день нет события
+    if (item.events.length === 0) return; // нечего выделять — на этот день нет события
     if (!isSelectionMode) {
-      setSelectedEventIds(new Set([item.event.id]));
+      setSelectedEventIds(new Set(item.events.map(e => e.id)));
     }
   }
 
   function handlePressRow(item: DayRow) {
-    if (!item.event) return; // строки без события не реагируют на тап вообще
     if (isSelectionMode) {
-      toggleEventSelection(item.event.id);
-    } else {
-      navigation.navigate('AddEvent', { existingEvent: item.event });
+      if (item.events.length > 0) toggleRowSelection(item);
+      return;
     }
+    // Обычный тап — шторка дня: время будильников, дополнительные, события.
+    setSheetDateKey(item.details.dateKey);
   }
 
   async function handleDeleteSelected() {
@@ -299,7 +345,7 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
         <Text style={styles.greeting}>{getGreeting(new Date().getHours())}</Text>
         <Text style={styles.dateCaption}>{formatTodayDate(new Date())}</Text>
 
-        {todayRow?.isWork ? (
+        {todayRow?.isWorkDay ? (
           <Text style={[styles.time, { fontSize: typography.displayLarge.fontSize * scale }]}>
             {formatClock(now)}
           </Text>
@@ -309,7 +355,14 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
                     <Text style={styles.restHeroTitle}>Сегодня твой день</Text>
                   </>
                 )}
-        <Text style={styles.subtitle}>{activeSchedule.name}</Text>
+        {/* Будильник выходного дня дописываем в уже существующую строку — шапка
+            не становится выше, а значит высота списка ниже и размер строк не меняются. */}
+        <Text style={styles.subtitle}>
+          {activeSchedule.name}
+          {!todayRow?.isWorkDay && todayRow?.hasAlarms && todayRow.time
+            ? ` · будильник ${todayRow.time}${todayRow.alarmCount > 1 ? ` (×${todayRow.alarmCount})` : ''}`
+            : ''}
+        </Text>
       </View>
 
       <Text style={styles.sectionTitle}>Ближайшие дни</Text>
@@ -328,8 +381,8 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
               ? Math.max(MIN_ROW_HEIGHT, Math.floor(availableForRows / DAYS_TO_SHOW))
               : MIN_ROW_HEIGHT;
 
-          const isSelectable = item.event !== null;
-          const isSelected = item.event ? selectedEventIds.has(item.event.id) : false;
+          const isSelectable = item.events.length > 0;
+          const isSelected = isSelectable && item.events.every(e => selectedEventIds.has(e.id));
           // В режиме выбора строки без события визуально "выключены" —
           // сразу видно, что их нельзя выделить, удалять там нечего.
           const isDimmedForSelection = isSelectionMode && !isSelectable;
@@ -343,7 +396,7 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
               <View
                 style={[
                   styles.row,
-                  !item.isWork && styles.rowRest,
+                  !item.isWorkDay && styles.rowRest,
                   { height: rowHeight },
                   isSelected && styles.rowSelected,
                   isDimmedForSelection && styles.rowDimmed,
@@ -355,15 +408,29 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
                       {isSelected && <Check color={colors.background} size={14} />}
                     </View>
                   )}
-                  {item.event && (
-                    <View style={[styles.eventDot, { backgroundColor: item.event.color }]} />
-                  )}
+                  {item.events.map(ev => (
+                    <View key={ev.id} style={[styles.eventDot, { backgroundColor: ev.color }]} />
+                  ))}
                   <Text style={styles.rowDay}>{formatDayLabel(item.date, days[0].date)}</Text>
+                  {item.hasCalendarChanges && <View style={styles.changeDot} />}
                 </View>
-                {item.isWork ? (
-                  <Text style={styles.rowTime}>{item.time ?? '—'}</Text>
+                {item.isWorkDay ? (
+                  <View style={styles.timeBox}>
+                    {item.alarmCount > 1 && <Text style={styles.countBadge}>×{item.alarmCount}</Text>}
+                    <Text style={styles.rowTime}>{item.time ?? '—'}</Text>
+                  </View>
                 ) : (
-                  <Sofa color={item.isPaused ? colors.pauseAccent : colors.restAccent} size={22} />
+                  // Выходной остаётся выходным: диванчик на месте, а будильник,
+                  // если он есть, — тихая подпись рядом, а не крупное время.
+                  <View style={styles.timeBox}>
+                    {item.hasAlarms && item.time && (
+                      <Text style={styles.restAlarmTime}>
+                        {item.alarmCount > 1 ? `×${item.alarmCount}  ` : ''}
+                        {item.time}
+                      </Text>
+                    )}
+                    <Sofa color={item.isPaused ? colors.pauseAccent : colors.restAccent} size={22} />
+                  </View>
                 )}
               </View>
             </Pressable>
@@ -398,6 +465,22 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
     </Pressable>
   )}
 </Animated.View>
+
+      <DaySheet
+        visible={sheetDateKey !== null}
+        details={days.find(d => d.details.dateKey === sheetDateKey)?.details ?? null}
+        schedule={activeSchedule}
+        timeOverrides={timeOverrides}
+        extraAlarms={extraAlarms}
+        onClose={() => setSheetDateKey(null)}
+        onChanged={() => {
+          loadCalendarData().catch(error => console.log('Не удалось обновить календарь:', error));
+        }}
+        onOpenEvent={event => {
+          setSheetDateKey(null);
+          navigation.navigate('AddEvent', { existingEvent: event });
+        }}
+      />
     </View>
   );
 }
@@ -489,6 +572,10 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textPrimary,
   },
+  restAlarmTime: { ...typography.body, color: colors.textSecondary },
+  changeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: calendarChangeColor },
+  timeBox: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  countBadge: { ...typography.caption, color: colors.textSecondary },
   rowTime: {
     ...typography.headline,
     fontSize: 20,

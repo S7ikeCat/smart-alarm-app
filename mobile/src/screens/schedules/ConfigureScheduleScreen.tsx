@@ -10,6 +10,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { SchedulesStackParamList } from '../../navigation/types';
+import { calendarChangeColor } from '../../theme/marks';
 import {
   saveWorkSchedule,
   saveDayOverrides,
@@ -17,6 +18,9 @@ import {
   saveSchedulePause,
   loadSchedulePauses,
   deleteSchedulePause,
+  loadAlarmTimeOverrides,
+  loadExtraAlarms,
+  generateExtraAlarms,
   NativeWorkSchedule,
   NativeSchedulePause,
 } from '../../native/alarmCore';
@@ -47,6 +51,19 @@ function formatStartLabel(date: Date) {
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Время, в которое реально звонит будильник графика, "HH:MM". В новой модели
+ * оно хранится прямо в shiftStartTime (offset = 0). Для графиков, сохранённых
+ * по-старому (смена минус N минут), пересчитываем, чтобы экран показывал то
+ * время, в которое будильник действительно звонит.
+ */
+function ringTimeOf(schedule: NativeWorkSchedule): string {
+  const [h, m] = schedule.shiftStartTime.split(':').map(Number);
+  const offset = schedule.alarms[0]?.offsetMinutes ?? 0;
+  const total = (((h * 60 + m - offset) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function serializeOverrides(o: Record<string, DayOverride>) {
@@ -103,7 +120,7 @@ export function ConfigureScheduleScreen() {
       initialSignatureRef.current = JSON.stringify({
         name: existingSchedule.name,
         color: existingSchedule.color,
-        shiftStartTime: existingSchedule.shiftStartTime.slice(0, 5),
+        shiftStartTime: ringTimeOf(existingSchedule),
         overrides: serializeOverrides(asRecord),
         startOffset: initialStartOffsetRef.current,
       });
@@ -130,6 +147,36 @@ export function ConfigureScheduleScreen() {
     loadSchedulePauses(existingSchedule.id).then(setPauses);
   }, [existingSchedule]);
 
+  // Дни, изменённые через вкладки "Календарь"/"Будильники": разовый будильник
+  // на дату или другое время будильника на этот день. Показываем голубой
+  // меткой, чтобы выходной с будильником не выглядел как ошибка графика.
+  // Повторяющиеся будильники (на все выходные) сюда намеренно не входят —
+  // это правило, а не правка конкретного дня.
+  const [calendarMarks, setCalendarMarks] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!existingSchedule) return;
+    const toKey = (iso: string) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      return `${y}-${m}-${d}`;
+    };
+    Promise.all([
+      loadAlarmTimeOverrides(existingSchedule.id),
+      loadExtraAlarms(),
+      generateExtraAlarms(12),
+    ])
+      .then(([timeOverrides, extras, instances]) => {
+        const marks = new Set<string>();
+        for (const t of timeOverrides) marks.add(toKey(t.date));
+        const oneDateIds = new Set(extras.filter(a => a.kind === 'ONE_DATE').map(a => a.id));
+        for (const i of instances) {
+          if (oneDateIds.has(i.alarmId)) marks.add(toKey(i.date));
+        }
+        setCalendarMarks(marks);
+      })
+      .catch(error => console.log('Не удалось загрузить метки календаря:', error));
+  }, [existingSchedule]);
+
   const pauseRangeStart = useMemo(() => {
     if (!pauseAnchor || !pauseCursor) return null;
     return pauseAnchor.getTime() <= pauseCursor.getTime() ? pauseAnchor : pauseCursor;
@@ -140,12 +187,12 @@ export function ConfigureScheduleScreen() {
     return pauseAnchor.getTime() <= pauseCursor.getTime() ? pauseCursor : pauseAnchor;
   }, [pauseAnchor, pauseCursor]);
 
-  // Время начала смены. При редактировании — из сохранённого графика
-  // (строка "HH:MM:SS"), иначе по умолчанию 08:00.
+  // Время будильника — то самое, в которое он реально зазвонит. При
+  // редактировании берётся из сохранённого графика, иначе по умолчанию 08:00.
   const [shiftTime, setShiftTime] = useState(() => {
     const d = new Date();
     if (existingSchedule) {
-      const [hours, minutes] = existingSchedule.shiftStartTime.split(':').map(Number);
+      const [hours, minutes] = ringTimeOf(existingSchedule).split(':').map(Number);
       d.setHours(hours, minutes, 0, 0);
     } else {
       d.setHours(8, 0, 0, 0);
@@ -191,7 +238,7 @@ const initialSignatureRef = useRef(
   JSON.stringify({
     name: existingSchedule?.name ?? presetName,
     color: existingSchedule?.color ?? SCHEDULE_COLORS[0],
-    shiftStartTime: existingSchedule ? existingSchedule.shiftStartTime.slice(0, 5) : '08:00',
+    shiftStartTime: existingSchedule ? ringTimeOf(existingSchedule) : '08:00',
     overrides: serializeOverrides({}),
     startOffset: initialStartOffsetRef.current,
   }),
@@ -383,15 +430,13 @@ const hasChanges = useMemo(() => {
       sourcePresetId: presetId === 'custom' ? null : presetId,
       startDate: `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`,
       shiftStartTime: `${String(shiftTime.getHours()).padStart(2, '0')}:${String(shiftTime.getMinutes()).padStart(2, '0')}:00`,
-            // Теперь одно простое правило: будильник звонит ровно в указанное
-      // время, без смещений — offsetMinutes всегда 0. Поле в Rust-модели
-      // осталось прежним, здесь просто упростили сам UX выбора времени.
+      // Ровно один будильник, offset = 0: время будильника и есть shiftStartTime.
       alarms: [
         {
-          id: uuid.v4() as string,
+          id: existingSchedule?.alarms[0]?.id ?? (uuid.v4() as string),
           offsetMinutes: 0,
-          ringtoneId: 'default',
-          vibration: true,
+          ringtoneId: existingSchedule?.alarms[0]?.ringtoneId ?? 'default',
+          vibration: existingSchedule?.alarms[0]?.vibration ?? true,
         },
       ],
       isActive: existingSchedule?.isActive ?? false,
@@ -623,6 +668,7 @@ const hasChanges = useMemo(() => {
                 const isToday = isSameDay(day, today);
                 const hasOverride = override !== undefined;
                 const isPauseOverride = hasOverride && isDateInAnyPause(day, pauses);
+                const hasCalendarMark = calendarMarks.has(key);
 
                 const isInPauseSelection =
                 isPauseSelectMode &&
@@ -658,6 +704,7 @@ const hasChanges = useMemo(() => {
                         {day.getDate()}
                       </Text>
                     </View>
+                    {inCurrentMonth && hasCalendarMark && <View style={styles.calendarMarkDot} />}
                   </Pressable>
                 );
               })}
@@ -677,6 +724,10 @@ const hasChanges = useMemo(() => {
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, styles.legendDotPause]} />
             <Text style={styles.legendText}>Пауза</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: calendarChangeColor }]} />
+            <Text style={styles.legendText}>Из календаря</Text>
           </View>
         </View>
       </View>
@@ -716,8 +767,11 @@ const hasChanges = useMemo(() => {
         </Pressable>
         </View>
 
-        {showSaveButton && (
-        <Pressable style={styles.saveButton} onPress={handleSave}>
+{showSaveButton && (
+        <Pressable
+          style={styles.saveButton}
+          onPress={handleSave}
+        >
           <Text style={styles.saveButtonText}>
             {isEditing ? 'Сохранить изменения' : 'Сохранить график'}
           </Text>
@@ -781,6 +835,17 @@ const styles = StyleSheet.create({
   weekdayLabel: { ...typography.caption, color: colors.textSecondary, flex: 1, textAlign: 'center' },
   weekRow: { flexDirection: 'row' },
   dayCell: { flex: 1, aspectRatio: 1, justifyContent: 'center', alignItems: 'center' },
+  calendarMarkDot: {
+    position: 'absolute',
+    top: 2,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: calendarChangeColor,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+  },
   dayCircle: {
     width: '78%',
     height: '78%',
@@ -802,7 +867,7 @@ const styles = StyleSheet.create({
   dayNumber: { ...typography.caption, color: colors.textSecondary },
   dayNumberMuted: { color: colors.border },
   dayNumberWork: { color: colors.background, fontWeight: '600' },
-  legendRow: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.md },
+  legendRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, rowGap: spacing.sm, marginTop: spacing.md },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendDotOverride: {

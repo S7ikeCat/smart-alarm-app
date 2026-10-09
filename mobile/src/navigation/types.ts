@@ -14,6 +14,7 @@ export type SchedulesStackParamList = {
 
 export type RootTabParamList = {
   Calendar: undefined;
+  Alarms: undefined;
   Schedules: undefined;
   Tools: undefined;
   Settings: undefined;

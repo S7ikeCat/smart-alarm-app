@@ -13,11 +13,12 @@ import { SchedulesScreen } from '../screens/schedules/SchedulesScreen';
 import { CreateScheduleScreen } from '../screens/schedules/CreateScheduleScreen';
 import { ConfigureScheduleScreen } from '../screens/schedules/ConfigureScheduleScreen';
 import { CustomPatternScreen } from '../screens/schedules/CustomPatternScreen';
+import { ExtraAlarmsScreen } from '../screens/alarms/ExtraAlarmsScreen';
 import { ToolsScreen } from '../screens/tools/ToolsScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { colors } from '../theme/colors';
 
-import { Calendar, CalendarRange, Timer, Settings } from 'lucide-react-native';
+import { Calendar, CalendarRange, Timer, Settings, AlarmClock } from 'lucide-react-native';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const SchedulesStack = createNativeStackNavigator<SchedulesStackParamList>();
@@ -102,6 +103,14 @@ function AppNavigator() {
           options={{
             title: 'Календарь',
             tabBarIcon: ({ color, size }) => <Calendar color={color} size={size} />,
+          }}
+        />
+        <Tab.Screen
+          name="Alarms"
+          component={ExtraAlarmsScreen}
+          options={{
+            title: 'Будильники',
+            tabBarIcon: ({ color, size }) => <AlarmClock color={color} size={size} />,
           }}
         />
         <Tab.Screen
