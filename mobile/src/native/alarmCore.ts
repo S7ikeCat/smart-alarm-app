@@ -1,4 +1,18 @@
 import { NativeModules } from 'react-native';
+import { syncAlarmsNow } from './alarmScheduler';
+
+// Любое изменение данных сразу пересчитывает системные будильники,
+// чтобы они не отставали от графика, пока приложение не открыли заново.
+function syncAfter<T>(promise: Promise<T>): Promise<T> {
+  return promise.then(async result => {
+    try {
+      await syncAlarmsNow();
+    } catch (e) {
+      console.log('Не удалось синхронизировать будильники:', e);
+    }
+    return result;
+  });
+}
 
 const { AlarmCore } = NativeModules;
 
@@ -27,7 +41,7 @@ export type NativeWorkSchedule = {
  * если Kotlin-сторона вернула ошибку (см. AlarmCoreModule.saveWorkScheduleJson).
  */
 export function saveWorkSchedule(schedule: NativeWorkSchedule): Promise<void> {
-  return AlarmCore.saveWorkScheduleJson(JSON.stringify(schedule));
+  return syncAfter(AlarmCore.saveWorkScheduleJson(JSON.stringify(schedule)));
 }
 
 /**
@@ -43,7 +57,7 @@ export async function loadWorkSchedules(): Promise<NativeWorkSchedule[]> {
  * см. ON DELETE CASCADE в схеме БД).
  */
 export function deleteWorkSchedule(scheduleId: string): Promise<void> {
-  return AlarmCore.deleteWorkSchedule(scheduleId);
+  return syncAfter(AlarmCore.deleteWorkSchedule(scheduleId));
 }
 
 export type NativeAlarmInstance = {
@@ -60,7 +74,7 @@ export type NativeAlarmInstance = {
  * (строго один активный график — см. set_active_schedule_ffi в Rust-ядре).
  */
 export function setActiveSchedule(scheduleId: string): Promise<void> {
-  return AlarmCore.setActiveSchedule(scheduleId);
+  return syncAfter(AlarmCore.setActiveSchedule(scheduleId));
 }
 
 /**
@@ -86,7 +100,7 @@ export function saveDayOverrides(
   scheduleId: string,
   overrides: NativeDayOverride[],
 ): Promise<void> {
-  return AlarmCore.saveDayOverridesJson(scheduleId, JSON.stringify(overrides));
+  return syncAfter(AlarmCore.saveDayOverridesJson(scheduleId, JSON.stringify(overrides)));
 }
 
 /**
@@ -108,7 +122,7 @@ export type NativeCustomEvent = {
 };
 
 export function saveCustomEvent(event: NativeCustomEvent): Promise<void> {
-  return AlarmCore.saveCustomEventJson(JSON.stringify(event));
+  return syncAfter(AlarmCore.saveCustomEventJson(JSON.stringify(event)));
 }
 
 export async function loadCustomEvents(): Promise<NativeCustomEvent[]> {
@@ -117,7 +131,7 @@ export async function loadCustomEvents(): Promise<NativeCustomEvent[]> {
 }
 
 export function deleteCustomEvent(eventId: string): Promise<void> {
-  return AlarmCore.deleteCustomEvent(eventId);
+  return syncAfter(AlarmCore.deleteCustomEvent(eventId));
 }
 
 export type NativeSchedulePause = {
@@ -129,7 +143,7 @@ export type NativeSchedulePause = {
 };
 
 export function saveSchedulePause(pause: NativeSchedulePause): Promise<void> {
-  return AlarmCore.saveSchedulePauseJson(JSON.stringify(pause));
+  return syncAfter(AlarmCore.saveSchedulePauseJson(JSON.stringify(pause)));
 }
 
 export async function loadSchedulePauses(scheduleId: string): Promise<NativeSchedulePause[]> {
@@ -138,5 +152,65 @@ export async function loadSchedulePauses(scheduleId: string): Promise<NativeSche
 }
 
 export function deleteSchedulePause(pauseId: string): Promise<void> {
-  return AlarmCore.deleteSchedulePause(pauseId);
+  return syncAfter(AlarmCore.deleteSchedulePause(pauseId));
+}
+
+// --- Дополнительные будильники ------------------------------------------------
+
+export type ExtraAlarmKind = 'WORK_DAYS' | 'REST_DAYS' | 'ALL_DAYS' | 'ONE_DATE';
+
+export type NativeExtraAlarm = {
+  id: string;
+  label: string;
+  timeLocal: string; // "HH:MM:SS"
+  kind: ExtraAlarmKind;
+  date: string | null; // только для ONE_DATE, "YYYY-MM-DD"
+  enabled: boolean;
+};
+
+export function saveExtraAlarm(alarm: NativeExtraAlarm): Promise<void> {
+  return syncAfter(AlarmCore.saveExtraAlarmJson(JSON.stringify(alarm)));
+}
+
+export async function loadExtraAlarms(): Promise<NativeExtraAlarm[]> {
+  const json: string = await AlarmCore.loadExtraAlarmsJson();
+  return JSON.parse(json);
+}
+
+export function deleteExtraAlarm(alarmId: string): Promise<void> {
+  return syncAfter(AlarmCore.deleteExtraAlarm(alarmId));
+}
+
+export type NativeExtraAlarmInstance = {
+  alarmId: string;
+  date: string;
+  timeLocal: string;
+  label: string;
+};
+
+export async function generateExtraAlarms(horizonMonths: number): Promise<NativeExtraAlarmInstance[]> {
+  const json: string = await AlarmCore.generateExtraAlarmsJson(horizonMonths);
+  return JSON.parse(json);
+}
+
+// --- Время будильника графика на конкретную дату ---------------------------------
+
+export type NativeAlarmTimeOverride = {
+  scheduleId: string;
+  date: string; // "YYYY-MM-DD"
+  ruleId: string; // id правила будильника из графика
+  timeLocal: string; // "HH:MM:SS"
+};
+
+export function saveAlarmTimeOverride(item: NativeAlarmTimeOverride): Promise<void> {
+  return syncAfter(AlarmCore.saveAlarmTimeOverrideJson(JSON.stringify(item)));
+}
+
+export async function loadAlarmTimeOverrides(scheduleId: string): Promise<NativeAlarmTimeOverride[]> {
+  const json: string = await AlarmCore.loadAlarmTimeOverridesJson(scheduleId);
+  return JSON.parse(json);
+}
+
+export function deleteAlarmTimeOverride(scheduleId: string, date: string, ruleId: string): Promise<void> {
+  return syncAfter(AlarmCore.deleteAlarmTimeOverride(scheduleId, date, ruleId));
 }

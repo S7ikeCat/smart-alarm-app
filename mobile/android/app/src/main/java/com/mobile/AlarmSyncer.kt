@@ -15,9 +15,11 @@ import uniffi.alarm_core.*
  * Единственная реализация синхронизации будильников с AlarmManager.
  * Работает целиком в нативном коде и не зависит от JS.
  * Пул слотов 0..SLOT_COUNT-1; слот 9999 (отложенный будильник) не трогаем.
+ * Источники: будильники графиков, дополнительные будильники, события.
+ * Будильники с одной и той же минутой сливаются в один звонок.
  */
 object AlarmSyncer {
-    const val SLOT_COUNT = 20
+    const val SLOT_COUNT = 64
     private const val HORIZON_MONTHS = 2
 
     private class Candidate(val id: String, val label: String, val triggerAtMillis: Long)
@@ -68,7 +70,31 @@ object AlarmSyncer {
             candidates.add(Candidate("event:${event.id}", event.label, at))
         }
 
-        val upcoming = candidates.sortedBy { it.triggerAtMillis }.take(SLOT_COUNT)
+        for (extra in generateExtraAlarmsFfi(path, HORIZON_MONTHS.toUInt())) {
+            val at = toMillis(extra.date, extra.timeLocal)
+            if (at <= now) continue
+            candidates.add(
+                Candidate(
+                    "extra:${extra.alarmId}:${extra.date}",
+                    extra.label.ifBlank { "Будильник" },
+                    at,
+                ),
+            )
+        }
+
+        // Одинаковое время -> один звонок с объединённой подписью, иначе два
+        // будильника в одну минуту толкали бы друг друга в сервисе.
+        val upcoming = candidates
+            .sortedBy { it.triggerAtMillis }
+            .groupBy { it.triggerAtMillis }
+            .map { (at, group) ->
+                Candidate(
+                    group.first().id,
+                    group.map { it.label }.distinct().joinToString(" · "),
+                    at,
+                )
+            }
+            .take(SLOT_COUNT)
 
         for (slot in 0 until SLOT_COUNT) {
             val candidate = upcoming.getOrNull(slot)

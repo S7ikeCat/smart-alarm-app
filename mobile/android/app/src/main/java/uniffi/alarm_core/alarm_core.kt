@@ -743,6 +743,20 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -758,17 +772,27 @@ internal interface UniffiLib : Library {
         
     }
 
+    fun uniffi_alarm_core_fn_func_delete_alarm_time_override_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`ruleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_delete_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_delete_extra_alarm_ffi(`dbPath`: RustBuffer.ByValue,`alarmId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_delete_schedule_pause_ffi(`dbPath`: RustBuffer.ByValue,`pauseId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_delete_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_fn_func_generate_extra_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_load_alarm_time_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_custom_events_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_load_extra_alarms_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_schedule_pauses_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -776,9 +800,13 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_resolve_timezone_alarm_ffi(`inputTime`: RustBuffer.ByValue,`referenceDate`: RustBuffer.ByValue,`sourceTzName`: RustBuffer.ByValue,`deviceTzName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_save_alarm_time_override_ffi(`dbPath`: RustBuffer.ByValue,`item`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_save_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_save_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`overrides`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_save_extra_alarm_ffi(`dbPath`: RustBuffer.ByValue,`alarm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_save_schedule_pause_ffi(`dbPath`: RustBuffer.ByValue,`pause`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -902,17 +930,27 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_alarm_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_checksum_func_delete_alarm_time_override_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_delete_custom_event_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_delete_extra_alarm_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_delete_schedule_pause_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_delete_work_schedule_ffi(
     ): Short
+    fun uniffi_alarm_core_checksum_func_generate_extra_alarms_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_load_alarm_time_overrides_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_load_custom_events_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_load_day_overrides_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_load_extra_alarms_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_load_schedule_pauses_ffi(
     ): Short
@@ -920,9 +958,13 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_alarm_core_checksum_func_resolve_timezone_alarm_ffi(
     ): Short
+    fun uniffi_alarm_core_checksum_func_save_alarm_time_override_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_save_custom_event_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_day_overrides_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_save_extra_alarm_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_schedule_pause_ffi(
     ): Short
@@ -951,7 +993,13 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_alarm_core_checksum_func_delete_alarm_time_override_ffi() != 10792.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_delete_custom_event_ffi() != 13931.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_delete_extra_alarm_ffi() != 25899.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_delete_schedule_pause_ffi() != 41370.toShort()) {
@@ -960,13 +1008,22 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_delete_work_schedule_ffi() != 16715.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi() != 59704.toShort()) {
+    if (lib.uniffi_alarm_core_checksum_func_generate_extra_alarms_ffi() != 22187.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi() != 61064.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_load_alarm_time_overrides_ffi() != 13373.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_custom_events_ffi() != 6975.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_day_overrides_ffi() != 53290.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_load_extra_alarms_ffi() != 55615.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_schedule_pauses_ffi() != 36808.toShort()) {
@@ -978,10 +1035,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_resolve_timezone_alarm_ffi() != 9939.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_alarm_core_checksum_func_save_alarm_time_override_ffi() != 1046.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_save_custom_event_ffi() != 412.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_day_overrides_ffi() != 46331.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_save_extra_alarm_ffi() != 16567.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_schedule_pause_ffi() != 54078.toShort()) {
@@ -1294,6 +1357,50 @@ public object FfiConverterTypeAlarmRule: FfiConverterRustBuffer<AlarmRule> {
 
 
 /**
+ * Другое время для одного будильника графика в одну конкретную дату
+ * (например, выходной превратили в рабочий и встать надо раньше/позже).
+ */
+data class AlarmTimeOverride (
+    var `scheduleId`: Uuid, 
+    var `date`: NaiveDate, 
+    var `ruleId`: Uuid, 
+    var `timeLocal`: NaiveTime
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAlarmTimeOverride: FfiConverterRustBuffer<AlarmTimeOverride> {
+    override fun read(buf: ByteBuffer): AlarmTimeOverride {
+        return AlarmTimeOverride(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeNaiveTime.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AlarmTimeOverride) = (
+            FfiConverterTypeUuid.allocationSize(value.`scheduleId`) +
+            FfiConverterTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterTypeUuid.allocationSize(value.`ruleId`) +
+            FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`)
+    )
+
+    override fun write(value: AlarmTimeOverride, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`scheduleId`, buf)
+            FfiConverterTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterTypeUuid.write(value.`ruleId`, buf)
+            FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
+    }
+}
+
+
+
+/**
  * Разовое событие с будильником на конкретную дату — не привязано ни к
  * одному графику работы (может выпасть и на выходной, где графика нет
  * вообще). Например, день рождения — свой цвет, своя подпись, своё время.
@@ -1382,6 +1489,103 @@ public object FfiConverterTypeDayOverride: FfiConverterRustBuffer<DayOverride> {
     override fun write(value: DayOverride, buf: ByteBuffer) {
             FfiConverterTypeNaiveDate.write(value.`date`, buf)
             FfiConverterBoolean.write(value.`isWork`, buf)
+    }
+}
+
+
+
+/**
+ * Дополнительный будильник — живёт сам по себе, поверх смен и событий.
+ * Именно он решает три задачи: будильник в выходной, будильник на
+ * конкретную дату с любым временем и "серия" из нескольких подряд
+ * (просто несколько таких будильников с разным временем).
+ */
+data class ExtraAlarm (
+    var `id`: Uuid, 
+    var `label`: kotlin.String, 
+    var `timeLocal`: NaiveTime, 
+    var `kind`: ExtraAlarmKind, 
+    var `date`: NaiveDate?, 
+    var `enabled`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeExtraAlarm: FfiConverterRustBuffer<ExtraAlarm> {
+    override fun read(buf: ByteBuffer): ExtraAlarm {
+        return ExtraAlarm(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeNaiveTime.read(buf),
+            FfiConverterTypeExtraAlarmKind.read(buf),
+            FfiConverterOptionalTypeNaiveDate.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ExtraAlarm) = (
+            FfiConverterTypeUuid.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`) +
+            FfiConverterTypeExtraAlarmKind.allocationSize(value.`kind`) +
+            FfiConverterOptionalTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterBoolean.allocationSize(value.`enabled`)
+    )
+
+    override fun write(value: ExtraAlarm, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`id`, buf)
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
+            FfiConverterTypeExtraAlarmKind.write(value.`kind`, buf)
+            FfiConverterOptionalTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterBoolean.write(value.`enabled`, buf)
+    }
+}
+
+
+
+/**
+ * Конкретное срабатывание дополнительного будильника на дату.
+ */
+data class ExtraAlarmInstance (
+    var `alarmId`: Uuid, 
+    var `date`: NaiveDate, 
+    var `timeLocal`: NaiveTime, 
+    var `label`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeExtraAlarmInstance: FfiConverterRustBuffer<ExtraAlarmInstance> {
+    override fun read(buf: ByteBuffer): ExtraAlarmInstance {
+        return ExtraAlarmInstance(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterTypeNaiveTime.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ExtraAlarmInstance) = (
+            FfiConverterTypeUuid.allocationSize(value.`alarmId`) +
+            FfiConverterTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`) +
+            FfiConverterString.allocationSize(value.`label`)
+    )
+
+    override fun write(value: ExtraAlarmInstance, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`alarmId`, buf)
+            FfiConverterTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
+            FfiConverterString.write(value.`label`, buf)
     }
 }
 
@@ -1662,6 +1866,41 @@ public object FfiConverterTypeDayType: FfiConverterRustBuffer<DayType> {
 
 
 /**
+ * Когда звонит дополнительный будильник.
+ */
+
+enum class ExtraAlarmKind {
+    
+    WORK_DAYS,
+    REST_DAYS,
+    ALL_DAYS,
+    ONE_DATE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeExtraAlarmKind: FfiConverterRustBuffer<ExtraAlarmKind> {
+    override fun read(buf: ByteBuffer) = try {
+        ExtraAlarmKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: ExtraAlarmKind) = 4UL
+
+    override fun write(value: ExtraAlarmKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
  * Статус конкретного экземпляра будильника на конкретную дату.
  * Разница Active/SkippedByUser — это и есть механика "отключить,
  * но не удалить", которую ты просил в самом начале.
@@ -1849,6 +2088,38 @@ public object FfiConverterTypeScheduleSource : FfiConverterRustBuffer<ScheduleSo
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeNaiveDate: FfiConverterRustBuffer<NaiveDate?> {
+    override fun read(buf: ByteBuffer): NaiveDate? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeNaiveDate.read(buf)
+    }
+
+    override fun allocationSize(value: NaiveDate?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeNaiveDate.allocationSize(value)
+        }
+    }
+
+    override fun write(value: NaiveDate?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeNaiveDate.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeUuid: FfiConverterRustBuffer<Uuid?> {
     override fun read(buf: ByteBuffer): Uuid? {
         if (buf.get().toInt() == 0) {
@@ -1937,6 +2208,34 @@ public object FfiConverterSequenceTypeAlarmRule: FfiConverterRustBuffer<List<Ala
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeAlarmTimeOverride: FfiConverterRustBuffer<List<AlarmTimeOverride>> {
+    override fun read(buf: ByteBuffer): List<AlarmTimeOverride> {
+        val len = buf.getInt()
+        return List<AlarmTimeOverride>(len) {
+            FfiConverterTypeAlarmTimeOverride.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AlarmTimeOverride>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAlarmTimeOverride.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AlarmTimeOverride>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAlarmTimeOverride.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeCustomEvent: FfiConverterRustBuffer<List<CustomEvent>> {
     override fun read(buf: ByteBuffer): List<CustomEvent> {
         val len = buf.getInt()
@@ -1983,6 +2282,62 @@ public object FfiConverterSequenceTypeDayOverride: FfiConverterRustBuffer<List<D
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeDayOverride.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeExtraAlarm: FfiConverterRustBuffer<List<ExtraAlarm>> {
+    override fun read(buf: ByteBuffer): List<ExtraAlarm> {
+        val len = buf.getInt()
+        return List<ExtraAlarm>(len) {
+            FfiConverterTypeExtraAlarm.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ExtraAlarm>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeExtraAlarm.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ExtraAlarm>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeExtraAlarm.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeExtraAlarmInstance: FfiConverterRustBuffer<List<ExtraAlarmInstance>> {
+    override fun read(buf: ByteBuffer): List<ExtraAlarmInstance> {
+        val len = buf.getInt()
+        return List<ExtraAlarmInstance>(len) {
+            FfiConverterTypeExtraAlarmInstance.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ExtraAlarmInstance>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeExtraAlarmInstance.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ExtraAlarmInstance>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeExtraAlarmInstance.write(it, buf)
         }
     }
 }
@@ -2101,6 +2456,18 @@ public typealias FfiConverterTypeNaiveTime = FfiConverterString
 public typealias Uuid = kotlin.String
 public typealias FfiConverterTypeUuid = FfiConverterString
         /**
+         * Убирает "время на дату" — будильник снова звонит по обычному правилу.
+         */
+    @Throws(AlarmCoreException::class) fun `deleteAlarmTimeOverrideFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid, `date`: NaiveDate, `ruleId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_alarm_time_override_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),FfiConverterTypeNaiveDate.lower(`date`),FfiConverterTypeUuid.lower(`ruleId`),_status)
+}
+    
+    
+
+        /**
          * Удаляет событие по id.
          */
     @Throws(AlarmCoreException::class) fun `deleteCustomEventFfi`(`dbPath`: kotlin.String, `eventId`: Uuid)
@@ -2108,6 +2475,18 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_custom_event_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`eventId`),_status)
+}
+    
+    
+
+        /**
+         * Удаляет дополнительный будильник.
+         */
+    @Throws(AlarmCoreException::class) fun `deleteExtraAlarmFfi`(`dbPath`: kotlin.String, `alarmId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_extra_alarm_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`alarmId`),_status)
 }
     
     
@@ -2140,15 +2519,44 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     
 
         /**
+         * Раскладывает дополнительные будильники по датам окна. Рабочие дни —
+         * по паттерну активного графика с учётом overrides; нет активного графика —
+         * все дни считаются выходными.
+         */
+    @Throws(AlarmCoreException::class) fun `generateExtraAlarmsFfi`(`dbPath`: kotlin.String, `horizonMonths`: kotlin.UInt): List<ExtraAlarmInstance> {
+            return FfiConverterSequenceTypeExtraAlarmInstance.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_generate_extra_alarms_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Генерирует и объединяет предстоящие будильники всех активных графиков
          * за один вызов — мобильной стороне не нужно знать, сколько графиков есть
-         * и как их правильно смешивать между собой.
+         * и как их правильно смешивать между собой. Окно — от вчера на
+         * `horizon_months` вперёд; учитывает overrides дней и время на конкретную дату.
          */
     @Throws(AlarmCoreException::class) fun `generateUpcomingAlarmsFfi`(`dbPath`: kotlin.String, `horizonMonths`: kotlin.UInt): List<AlarmInstance> {
             return FfiConverterSequenceTypeAlarmInstance.lift(
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Загружает все "времена на дату" графика.
+         */
+    @Throws(AlarmCoreException::class) fun `loadAlarmTimeOverridesFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid): List<AlarmTimeOverride> {
+            return FfiConverterSequenceTypeAlarmTimeOverride.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_alarm_time_overrides_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
 }
     )
     }
@@ -2175,6 +2583,19 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_day_overrides_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Загружает все дополнительные будильники.
+         */
+    @Throws(AlarmCoreException::class) fun `loadExtraAlarmsFfi`(`dbPath`: kotlin.String): List<ExtraAlarm> {
+            return FfiConverterSequenceTypeExtraAlarm.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_extra_alarms_ffi(
+        FfiConverterString.lower(`dbPath`),_status)
 }
     )
     }
@@ -2221,6 +2642,18 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     
 
         /**
+         * Ставит другое время для одного будильника графика в одну дату (UPSERT).
+         */
+    @Throws(AlarmCoreException::class) fun `saveAlarmTimeOverrideFfi`(`dbPath`: kotlin.String, `item`: AlarmTimeOverride)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_alarm_time_override_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeAlarmTimeOverride.lower(`item`),_status)
+}
+    
+    
+
+        /**
          * Сохраняет новое или обновлённое событие (UPSERT по id).
          */
     @Throws(AlarmCoreException::class) fun `saveCustomEventFfi`(`dbPath`: kotlin.String, `event`: CustomEvent)
@@ -2242,6 +2675,18 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_day_overrides_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`scheduleId`),FfiConverterSequenceTypeDayOverride.lower(`overrides`),_status)
+}
+    
+    
+
+        /**
+         * Сохраняет дополнительный будильник (UPSERT по id).
+         */
+    @Throws(AlarmCoreException::class) fun `saveExtraAlarmFfi`(`dbPath`: kotlin.String, `alarm`: ExtraAlarm)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_extra_alarm_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeExtraAlarm.lower(`alarm`),_status)
 }
     
     

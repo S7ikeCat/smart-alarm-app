@@ -94,6 +94,48 @@ pub struct SchedulePause {
     pub label: String,
 }
 
+/// Когда звонит дополнительный будильник.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum ExtraAlarmKind {
+    WorkDays, // во все рабочие дни активного графика
+    RestDays, // во все выходные дни (если графика нет — каждый день)
+    AllDays,  // каждый день
+    OneDate,  // один раз, в конкретную дату
+}
+
+/// Дополнительный будильник — живёт сам по себе, поверх смен и событий.
+/// Именно он решает три задачи: будильник в выходной, будильник на
+/// конкретную дату с любым временем и "серия" из нескольких подряд
+/// (просто несколько таких будильников с разным временем).
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct ExtraAlarm {
+    pub id: Uuid,
+    pub label: String,
+    pub time_local: NaiveTime,
+    pub kind: ExtraAlarmKind,
+    pub date: Option<NaiveDate>, // нужна только для OneDate
+    pub enabled: bool,
+}
+
+/// Конкретное срабатывание дополнительного будильника на дату.
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct ExtraAlarmInstance {
+    pub alarm_id: Uuid,
+    pub date: NaiveDate,
+    pub time_local: NaiveTime,
+    pub label: String,
+}
+
+/// Другое время для одного будильника графика в одну конкретную дату
+/// (например, выходной превратили в рабочий и встать надо раньше/позже).
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct AlarmTimeOverride {
+    pub schedule_id: Uuid,
+    pub date: NaiveDate,
+    pub rule_id: Uuid,
+    pub time_local: NaiveTime,
+}
+
 /// Статус конкретного экземпляра будильника на конкретную дату.
 /// Разница Active/SkippedByUser — это и есть механика "отключить,
 /// но не удалить", которую ты просил в самом начале.
@@ -180,80 +222,76 @@ impl UniffiCustomTypeConverter for NaiveTime {
         DatabaseError { details: String },
     }
 
-/// Генерирует конкретные будильники (AlarmInstance) из графика на заданный
-/// горизонт вперёд. Пока обрабатывает только Cyclic-паттерн (2/2, 5/2 и т.д.) —
-/// Custom и Random добавим отдельно, это разная логика.
+/// Рабочий ли день с номером `offset` (дней от start_date) по паттерну графика.
+pub fn pattern_is_work(schedule: &WorkSchedule, offset: i64) -> bool {
+    match &schedule.pattern {
+        SchedulePattern::Cyclic { work_days, rest_days } => {
+            let cycle_len = (*work_days as i64) + (*rest_days as i64);
+            if cycle_len == 0 {
+                return false;
+            }
+            offset.rem_euclid(cycle_len) < *work_days as i64
+        }
+        SchedulePattern::Custom(days) => {
+            if days.is_empty() {
+                return false;
+            }
+            days[offset.rem_euclid(days.len() as i64) as usize] != DayType::Rest
+        }
+    }
+}
+
+/// Генерирует будильники графика в окне [from, from + horizon_months).
+/// Фаза цикла всегда считается от start_date графика, а окно можно двигать
+/// вперёд — так будильники не заканчиваются через N месяцев после создания
+/// графика. Возвращает пары (инстанс, id правила), чтобы потом можно было
+/// применить время на конкретную дату к конкретному правилу.
+pub fn generate_instances_from(
+    schedule: &WorkSchedule,
+    from: NaiveDate,
+    horizon_months: u32,
+) -> Vec<(AlarmInstance, Uuid)> {
+    let mut out = Vec::new();
+
+    let window_start = from.max(schedule.start_date);
+    let window_end = from
+        .checked_add_months(chrono::Months::new(horizon_months))
+        .expect("horizon slipped past chrono's supported date range");
+
+    let mut date = window_start;
+    while date < window_end {
+        let offset = (date - schedule.start_date).num_days();
+        if pattern_is_work(schedule, offset) {
+            for rule in &schedule.alarms {
+                out.push((
+                    AlarmInstance {
+                        id: Uuid::new_v4(),
+                        schedule_id: schedule.id,
+                        date,
+                        time_local: schedule.shift_start_time
+                            - chrono::Duration::minutes(rule.offset_minutes as i64),
+                        status: InstanceStatus::Active,
+                        origin: AlarmOrigin::FromPattern,
+                    },
+                    rule.id,
+                ));
+            }
+        }
+        date += chrono::Duration::days(1);
+    }
+
+    out
+}
+
+/// Совместимая обёртка: окно считается от start_date графика.
 pub fn generate_instances(
     schedule: &WorkSchedule,
     horizon_months: u32,
 ) -> Vec<AlarmInstance> {
-    let mut instances = Vec::new();
-
-    // Считаем горизонт ОДИН раз, до match — он нужен и Cyclic, и Custom веткам
-    let end_date = schedule
-        .start_date
-        .checked_add_months(chrono::Months::new(horizon_months))
-        .expect("horizon slipped past chrono's supported date range");
-    let horizon_days = (end_date - schedule.start_date).num_days();
-
-    match &schedule.pattern {
-        SchedulePattern::Cyclic { work_days, rest_days } => {
-            let cycle_len = (*work_days + *rest_days) as i64;
-            let mut day_offset: i64 = 0;
-
-            while day_offset < horizon_days {
-                let day_in_cycle = day_offset % cycle_len;
-                let is_work_day = day_in_cycle < *work_days as i64;
-
-                if is_work_day {
-                    for rule in &schedule.alarms {
-                        let alarm_time = schedule.shift_start_time
-                            - chrono::Duration::minutes(rule.offset_minutes as i64);
-
-                        instances.push(AlarmInstance {
-                            id: Uuid::new_v4(),
-                            schedule_id: schedule.id,
-                            date: schedule.start_date + chrono::Duration::days(day_offset),
-                            time_local: alarm_time,
-                            status: InstanceStatus::Active,
-                            origin: AlarmOrigin::FromPattern,
-                        });
-                    }
-                }
-
-                day_offset += 1;
-            }
-        }
-        SchedulePattern::Custom(days) => {
-            let cycle_len = days.len() as i64;
-            let mut day_offset: i64 = 0;
-
-            while day_offset < horizon_days {
-                let day_in_cycle = (day_offset % cycle_len) as usize;
-                let is_work_day = days[day_in_cycle] != DayType::Rest;
-
-                if is_work_day {
-                    for rule in &schedule.alarms {
-                        let alarm_time = schedule.shift_start_time
-                            - chrono::Duration::minutes(rule.offset_minutes as i64);
-
-                        instances.push(AlarmInstance {
-                            id: Uuid::new_v4(),
-                            schedule_id: schedule.id,
-                            date: schedule.start_date + chrono::Duration::days(day_offset),
-                            time_local: alarm_time,
-                            status: InstanceStatus::Active,
-                            origin: AlarmOrigin::FromPattern,
-                        });
-                    }
-                }
-
-                day_offset += 1;
-            }
-        }
-    }
-
-    instances
+    generate_instances_from(schedule, schedule.start_date, horizon_months)
+        .into_iter()
+        .map(|(i, _)| i)
+        .collect()
 }
 
 use chrono::{DateTime, TimeZone};

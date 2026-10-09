@@ -315,4 +315,123 @@ fun deleteSchedulePause(pauseId: String, promise: Promise) {
         promise.reject("DELETE_PAUSE_ERROR", e.message, e)
     }
 }
+
+// --- дополнительные будильники ---------------------------------------------
+
+@ReactMethod
+fun saveExtraAlarmJson(alarmJson: String, promise: Promise) {
+    try {
+        val obj = JSONObject(alarmJson)
+        val dateValue = if (obj.isNull("date")) null else obj.getString("date")
+        val alarm = ExtraAlarm(
+            id = obj.getString("id"),
+            label = obj.optString("label", ""),
+            timeLocal = obj.getString("timeLocal"),
+            kind = ExtraAlarmKind.valueOf(obj.getString("kind")),
+            date = dateValue,
+            enabled = obj.optBoolean("enabled", true),
+        )
+        saveExtraAlarmFfi(dbPath(), alarm)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("SAVE_EXTRA_ALARM_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun loadExtraAlarmsJson(promise: Promise) {
+    try {
+        val array = JSONArray()
+        for (a in loadExtraAlarmsFfi(dbPath())) {
+            val obj = JSONObject()
+            obj.put("id", a.id)
+            obj.put("label", a.label)
+            obj.put("timeLocal", a.timeLocal)
+            obj.put("kind", a.kind.name)
+            obj.put("date", a.date ?: JSONObject.NULL)
+            obj.put("enabled", a.enabled)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("LOAD_EXTRA_ALARMS_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun deleteExtraAlarm(alarmId: String, promise: Promise) {
+    try {
+        deleteExtraAlarmFfi(dbPath(), alarmId)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("DELETE_EXTRA_ALARM_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun generateExtraAlarmsJson(horizonMonths: Double, promise: Promise) {
+    try {
+        val array = JSONArray()
+        for (i in generateExtraAlarmsFfi(dbPath(), horizonMonths.toUInt())) {
+            val obj = JSONObject()
+            obj.put("alarmId", i.alarmId)
+            obj.put("date", i.date)
+            obj.put("timeLocal", i.timeLocal)
+            obj.put("label", i.label)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("GENERATE_EXTRA_ALARMS_ERROR", e.message, e)
+    }
+}
+
+// --- время будильника графика на конкретную дату -------------------------------
+
+@ReactMethod
+fun saveAlarmTimeOverrideJson(itemJson: String, promise: Promise) {
+    try {
+        val obj = JSONObject(itemJson)
+        saveAlarmTimeOverrideFfi(
+            dbPath(),
+            AlarmTimeOverride(
+                scheduleId = obj.getString("scheduleId"),
+                date = obj.getString("date"),
+                ruleId = obj.getString("ruleId"),
+                timeLocal = obj.getString("timeLocal"),
+            ),
+        )
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("SAVE_TIME_OVERRIDE_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun loadAlarmTimeOverridesJson(scheduleId: String, promise: Promise) {
+    try {
+        val array = JSONArray()
+        for (t in loadAlarmTimeOverridesFfi(dbPath(), scheduleId)) {
+            val obj = JSONObject()
+            obj.put("scheduleId", t.scheduleId)
+            obj.put("date", t.date)
+            obj.put("ruleId", t.ruleId)
+            obj.put("timeLocal", t.timeLocal)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("LOAD_TIME_OVERRIDES_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun deleteAlarmTimeOverride(scheduleId: String, date: String, ruleId: String, promise: Promise) {
+    try {
+        deleteAlarmTimeOverrideFfi(dbPath(), scheduleId, date, ruleId)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("DELETE_TIME_OVERRIDE_ERROR", e.message, e)
+    }
+}
 }
