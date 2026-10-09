@@ -29,6 +29,7 @@ import { syncSystemAlarms } from '../../native/alarmSync';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dateToKey } from '../../utils/timeUtils';
 import { calendarChangeColor } from '../../theme/marks';
+import { pruneTimeOverrides } from '../../utils/timeOverrides';
 
 const DAYS_TO_SHOW = 7;
 const ROW_GAP = spacing.sm;
@@ -164,8 +165,6 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
       loadSchedulePauses(active.id),
       loadAlarmTimeOverrides(active.id),
     ]);
-    setTimeOverrides(overrides);
-
     const scheduleTimesByDate = new Map<string, string[]>();
     for (const instance of alarms as NativeAlarmInstance[]) {
       const list = scheduleTimesByDate.get(instance.date) ?? [];
@@ -180,6 +179,16 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
       extrasByDate.set(extra.date, list);
     }
 
+    // Убираем "времена на дату", которые ничего не меняют или устарели
+    // (совпали с обычным временем, день уже не рабочий, дата прошла) —
+    // иначе голубая метка "изменено" зависала бы на пустом месте.
+    const checkUntilKey = dateToKey(addDays(startOfDay(new Date()), 55));
+    const cleanedOverrides = await pruneTimeOverrides(active, overrides, {
+      workDates: new Set(scheduleTimesByDate.keys()),
+      checkUntilKey,
+    });
+    setTimeOverrides(cleanedOverrides);
+
     const eventsByDate = new Map<string, NativeCustomEvent[]>();
     for (const event of events) {
       const list = eventsByDate.get(event.date) ?? [];
@@ -187,7 +196,7 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
       eventsByDate.set(event.date, list);
     }
 
-    const timeOverridesList = overrides;
+    const timeOverridesList = cleanedOverrides;
     // Метку "изменено через календарь" ставим только на разовые будильники и
     // смену времени на дату — повторяющиеся (на все выходные и т.п.) это
     // правило, а не правка конкретного дня, иначе метки залили бы весь список.

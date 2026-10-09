@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Modal } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -11,6 +11,7 @@ import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { SchedulesStackParamList } from '../../navigation/types';
 import { calendarChangeColor } from '../../theme/marks';
+import { pruneTimeOverrides } from '../../utils/timeOverrides';
 import {
   saveWorkSchedule,
   saveDayOverrides,
@@ -154,7 +155,10 @@ export function ConfigureScheduleScreen() {
   // это правило, а не правка конкретного дня.
   const [calendarMarks, setCalendarMarks] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
+  // Читаем при КАЖДОМ возвращении на экран, а не один раз: вкладки хранят открытый
+  // экран живым, и правки, сделанные в "Календаре", иначе не доехали бы сюда.
+  useFocusEffect(
+    useCallback(() => {
     if (!existingSchedule) return;
     const toKey = (iso: string) => {
       const [y, m, d] = iso.split('-').map(Number);
@@ -165,7 +169,10 @@ export function ConfigureScheduleScreen() {
       loadExtraAlarms(),
       generateExtraAlarms(12),
     ])
-      .then(([timeOverrides, extras, instances]) => {
+      .then(async ([rawTimeOverrides, extras, instances]) => {
+        // Метка только у настоящих изменений: записи, совпавшие с обычным
+        // временем или устаревшие, сразу убираем.
+        const timeOverrides = await pruneTimeOverrides(existingSchedule, rawTimeOverrides);
         const marks = new Set<string>();
         for (const t of timeOverrides) marks.add(toKey(t.date));
         const oneDateIds = new Set(extras.filter(a => a.kind === 'ONE_DATE').map(a => a.id));
@@ -175,7 +182,8 @@ export function ConfigureScheduleScreen() {
         setCalendarMarks(marks);
       })
       .catch(error => console.log('Не удалось загрузить метки календаря:', error));
-  }, [existingSchedule]);
+    }, [existingSchedule]),
+  );
 
   const pauseRangeStart = useMemo(() => {
     if (!pauseAnchor || !pauseCursor) return null;
@@ -445,6 +453,16 @@ const hasChanges = useMemo(() => {
 
     try {
       await saveWorkSchedule(nativeSchedule);
+
+      // Если новое время графика совпало с тем, что раньше было поставлено
+      // "на дату", такая правка больше ничего не меняет — убираем её, чтобы
+      // не оставалось ложной метки "изменено".
+      try {
+        const savedOverrides = await loadAlarmTimeOverrides(nativeSchedule.id);
+        await pruneTimeOverrides(nativeSchedule, savedOverrides);
+      } catch (pruneError) {
+        console.log('Не удалось почистить время на дату:', pruneError);
+      }
     
       const overridesList = Object.entries(overrides).map(([key, value]) => {
         const [year, month, day] = key.split('-').map(Number);

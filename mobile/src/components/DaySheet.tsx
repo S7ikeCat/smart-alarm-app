@@ -196,7 +196,18 @@ export function DaySheet({
           value={m.time}
           onChange={time => setMode({ ...m, time })}
         />
-        <Pressable style={styles.primary} onPress={() => saveRuleTime(m.ruleId, m.time)}>
+        <Pressable
+          style={styles.primary}
+          onPress={() => {
+            // Выбрали ровно обычное время — это не изменение, просто убираем запись.
+            if (m.time.slice(0, 5) === m.baseTime.slice(0, 5)) {
+              if (m.hadOverride) resetRuleTime(m.ruleId);
+              else backToList();
+            } else {
+              saveRuleTime(m.ruleId, m.time);
+            }
+          }}
+        >
           <Text style={styles.primaryText}>Сохранить</Text>
         </Pressable>
         {m.hadOverride && (
