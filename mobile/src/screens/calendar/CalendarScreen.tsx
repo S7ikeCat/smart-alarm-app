@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dateToKey } from '../../utils/timeUtils';
 import { calendarChangeColor } from '../../theme/marks';
 import { pruneTimeOverrides } from '../../utils/timeOverrides';
+import { REST_TITLE_DEFAULT, loadRestTitle } from '../../native/appSettings';
 
 const DAYS_TO_SHOW = 7;
 const ROW_GAP = spacing.sm;
@@ -94,6 +95,14 @@ export function CalendarScreen() {
   const [extraAlarms, setExtraAlarms] = useState<NativeExtraAlarm[]>([]);
   const [timeOverrides, setTimeOverrides] = useState<NativeAlarmTimeOverride[]>([]);
   const [sheetDateKey, setSheetDateKey] = useState<string | null>(null);
+  const [restTitle, setRestTitle] = useState(REST_TITLE_DEFAULT);
+
+  // Надпись выходного дня меняется в «Настройках» — перечитываем при возврате на экран.
+  useFocusEffect(
+    useCallback(() => {
+      loadRestTitle().then(setRestTitle);
+    }, []),
+  );
 
   // Показ/скрытие кнопки "+" по НАПРАВЛЕНИЮ скролла, а не по его позиции —
   // специально не завязываем прозрачность на сами пиксели прокрутки (это
@@ -361,7 +370,7 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
                 ) : (
                   <>
                     <Sofa color={todayRow?.isPaused ? colors.pauseAccent : colors.restAccent} size={44} />
-                    <Text style={styles.restHeroTitle}>Сегодня твой день</Text>
+                    <Text style={styles.restHeroTitle} numberOfLines={2}>{restTitle}</Text>
                   </>
                 )}
         {/* Будильник выходного дня дописываем в уже существующую строку — шапка

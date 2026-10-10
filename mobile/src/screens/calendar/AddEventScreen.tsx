@@ -39,13 +39,27 @@ export function AddEventScreen() {
   const route = useRoute<Route>();
   const existingEvent = route.params?.existingEvent;
   const isEditing = existingEvent !== undefined;
+  const fromSchedule = route.params?.fromSchedule === true;
+
+  // Закрыть экран. Если пришли из настроек графика — вернуть туда же,
+  // а не оставлять человека на вкладке «Календарь».
+  function finish() {
+    navigation.goBack();
+    if (fromSchedule) {
+      navigation.getParent()?.navigate('Schedules' as never);
+    }
+  }
 
   const [label, setLabel] = useState(existingEvent?.label ?? '');
   const [description, setDescription] = useState(existingEvent?.description ?? '');
   const [reminderEnabled, setReminderEnabled] = useState(existingEvent?.reminderEnabled ?? true);
   const [selectedColor, setSelectedColor] = useState(existingEvent?.color ?? EVENT_COLORS[0]);
   const [date, setDate] = useState(() =>
-    existingEvent ? parseIso(existingEvent.date) : new Date(),
+    existingEvent
+      ? parseIso(existingEvent.date)
+      : route.params?.date
+        ? parseIso(route.params.date)
+        : new Date(),
   );
   const [time, setTime] = useState(() => {
     if (existingEvent) {
@@ -154,7 +168,7 @@ useEffect(() => {
         description: description.trim(),
         reminderEnabled,
       });
-      navigation.goBack();
+      finish();
     } catch (error) {
       Alert.alert('Не удалось сохранить событие', String(error));
     }
@@ -170,7 +184,7 @@ useEffect(() => {
         onPress: async () => {
           try {
             await deleteCustomEvent(existingEvent.id);
-            navigation.goBack();
+            finish();
           } catch (error) {
             Alert.alert('Не удалось удалить событие', String(error));
           }

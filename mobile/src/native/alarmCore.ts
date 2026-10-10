@@ -40,8 +40,12 @@ export type NativeWorkSchedule = {
  * Сохраняет график в SQLite через Rust-ядро. Выбрасывает исключение,
  * если Kotlin-сторона вернула ошибку (см. AlarmCoreModule.saveWorkScheduleJson).
  */
-export function saveWorkSchedule(schedule: NativeWorkSchedule): Promise<void> {
-  return syncAfter(AlarmCore.saveWorkScheduleJson(JSON.stringify(schedule)));
+export function saveWorkSchedule(
+  schedule: NativeWorkSchedule,
+  options?: { sync?: boolean },
+): Promise<void> {
+  const call = AlarmCore.saveWorkScheduleJson(JSON.stringify(schedule));
+  return options?.sync === false ? call : syncAfter(call);
 }
 
 /**
@@ -99,8 +103,10 @@ export type NativeDayOverride = {
 export function saveDayOverrides(
   scheduleId: string,
   overrides: NativeDayOverride[],
+  options?: { sync?: boolean }, // sync:false — когда следом идёт ещё одна запись, и пересчитывать будильники надо один раз в конце
 ): Promise<void> {
-  return syncAfter(AlarmCore.saveDayOverridesJson(scheduleId, JSON.stringify(overrides)));
+  const call = AlarmCore.saveDayOverridesJson(scheduleId, JSON.stringify(overrides));
+  return options?.sync === false ? call : syncAfter(call);
 }
 
 /**

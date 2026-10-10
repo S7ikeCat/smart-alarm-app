@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Modal, ActivityIndicator } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,10 +21,16 @@ import {
   deleteSchedulePause,
   loadAlarmTimeOverrides,
   loadExtraAlarms,
+  loadCustomEvents,
+  NativeCustomEvent,
   generateExtraAlarms,
   NativeWorkSchedule,
   NativeSchedulePause,
+  NativeExtraAlarm,
+  NativeExtraAlarmInstance,
+  NativeAlarmTimeOverride,
 } from '../../native/alarmCore';
+import { DaySheet, DayDetails } from '../../components/DaySheet';
 
 type Route = RouteProp<SchedulesStackParamList, 'ConfigureSchedule'>;
 type Navigation = NativeStackNavigationProp<SchedulesStackParamList, 'ConfigureSchedule'>;
@@ -136,6 +142,21 @@ export function ConfigureScheduleScreen() {
   const [pauseCursor, setPauseCursor] = useState<Date | null>(null);
   const [pauseLabel, setPauseLabel] = useState('');
   const [isPauseFormOpen, setIsPauseFormOpen] = useState(false);
+  // Защита от двойного нажатия: флаг в ref срабатывает мгновенно (state обновится
+  // только к следующему кадру, и второй тап успел бы проскочить), а state нужен
+  // для показа индикатора загрузки на кнопке.
+  const busyRef = useRef(false);
+  const [isBusy, setIsBusy] = useState(false);
+  function beginBusy(): boolean {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setIsBusy(true);
+    return true;
+  }
+  function endBusy() {
+    busyRef.current = false;
+    setIsBusy(false);
+  }
   const [isCustomPauseLabel, setIsCustomPauseLabel] = useState(false);
 
   const PAUSE_LABEL_PRESETS = ['Отпуск', 'Больничный'];
@@ -155,35 +176,70 @@ export function ConfigureScheduleScreen() {
   // это правило, а не правка конкретного дня.
   const [calendarMarks, setCalendarMarks] = useState<Set<string>>(new Set());
 
-  // Читаем при КАЖДОМ возвращении на экран, а не один раз: вкладки хранят открытый
-  // экран живым, и правки, сделанные в "Календаре", иначе не доехали бы сюда.
-  useFocusEffect(
-    useCallback(() => {
-    if (!existingSchedule) return;
+  // Все дополнительные будильники и их срабатывания: нужны и для голубых меток,
+  // и для шторки дня (долгое нажатие на число).
+  const [extraAlarms, setExtraAlarms] = useState<NativeExtraAlarm[]>([]);
+  const [extraInstances, setExtraInstances] = useState<NativeExtraAlarmInstance[]>([]);
+  const [timeOverrides, setTimeOverrides] = useState<NativeAlarmTimeOverride[]>([]);
+  const [events, setEvents] = useState<NativeCustomEvent[]>([]);
+  const [sheetDate, setSheetDate] = useState<string | null>(null);
+
+  const reloadMarks = useCallback(() => {
     const toKey = (iso: string) => {
       const [y, m, d] = iso.split('-').map(Number);
       return `${y}-${m}-${d}`;
     };
     Promise.all([
-      loadAlarmTimeOverrides(existingSchedule.id),
+      existingSchedule ? loadAlarmTimeOverrides(existingSchedule.id) : Promise.resolve([]),
       loadExtraAlarms(),
       generateExtraAlarms(12),
+      loadCustomEvents(),
     ])
-      .then(async ([rawTimeOverrides, extras, instances]) => {
+      .then(async ([rawTimeOverrides, extras, instances, customEvents]) => {
         // Метка только у настоящих изменений: записи, совпавшие с обычным
         // временем или устаревшие, сразу убираем.
-        const timeOverrides = await pruneTimeOverrides(existingSchedule, rawTimeOverrides);
+        const timeOverrides = existingSchedule
+          ? await pruneTimeOverrides(existingSchedule, rawTimeOverrides)
+          : [];
         const marks = new Set<string>();
         for (const t of timeOverrides) marks.add(toKey(t.date));
         const oneDateIds = new Set(extras.filter(a => a.kind === 'ONE_DATE').map(a => a.id));
         for (const i of instances) {
           if (oneDateIds.has(i.alarmId)) marks.add(toKey(i.date));
         }
+        for (const e of customEvents) marks.add(toKey(e.date));
         setCalendarMarks(marks);
+        setEvents(customEvents);
+        setExtraAlarms(extras);
+        setExtraInstances(instances);
+        setTimeOverrides(timeOverrides);
       })
       .catch(error => console.log('Не удалось загрузить метки календаря:', error));
-    }, [existingSchedule]),
-  );
+  }, [existingSchedule]);
+
+  // Читаем при КАЖДОМ возвращении на экран, а не один раз: вкладки хранят открытый
+  // экран живым, и правки, сделанные в "Календаре", иначе не доехали бы сюда.
+  useFocusEffect(reloadMarks);
+
+  const sheetDetails: DayDetails | null = useMemo(() => {
+    if (!sheetDate) return null;
+    return {
+      dateKey: sheetDate,
+      hasScheduleAlarms: false, // здесь только дополнительные; время графика правится в «Календаре»
+      extras: extraInstances.filter(i => i.date === sheetDate),
+      events: events.filter(e => e.date === sheetDate),
+    };
+  }, [sheetDate, extraInstances, events]);
+
+  // Экран события живёт на вкладке «Календарь»: открываем его оттуда и просим
+  // вернуть обратно сюда после сохранения.
+  function openEventScreen(params: { date?: string; existingEvent?: NativeCustomEvent }) {
+    setSheetDate(null);
+    (navigation.getParent() as any)?.navigate('Calendar', {
+      screen: 'AddEvent',
+      params: { ...params, fromSchedule: true },
+    });
+  }
 
   const pauseRangeStart = useMemo(() => {
     if (!pauseAnchor || !pauseCursor) return null;
@@ -317,6 +373,7 @@ const hasChanges = useMemo(() => {
       return;
     }
     if (!pauseRangeStart || !pauseRangeEnd) return;
+    if (!beginBusy()) return;
 
     // Не даём создать паузу, пересекающуюся с уже существующей — иначе
     // обе "делят" одни и те же day_overrides (это просто плоская карта
@@ -330,6 +387,7 @@ const hasChanges = useMemo(() => {
         'Даты уже заняты',
         'Часть выбранного диапазона уже входит в другую паузу. Сначала удали её или выбери другие даты',
       );
+      endBusy();
       return;
     }
 
@@ -357,7 +415,8 @@ const hasChanges = useMemo(() => {
     };
 
     try {
-      await saveDayOverrides(existingSchedule.id, overridesList);
+      // Первая запись без пересчёта будильников — пересчёт один раз после второй.
+      await saveDayOverrides(existingSchedule.id, overridesList, { sync: false });
       await saveSchedulePause(newPause);
 
       setOverrides(nextOverrides);
@@ -377,6 +436,8 @@ const hasChanges = useMemo(() => {
       handleCancelPauseSelection();
     } catch (error) {
       Alert.alert('Не удалось сохранить паузу', String(error));
+    } finally {
+      endBusy();
     }
   }
 
@@ -388,6 +449,7 @@ const hasChanges = useMemo(() => {
         style: 'destructive',
         onPress: async () => {
           if (!existingSchedule) return;
+          if (!beginBusy()) return;
 
           const [sy, sm, sd] = pause.startDate.split('-').map(Number);
           const [ey, em, ed] = pause.endDate.split('-').map(Number);
@@ -408,7 +470,7 @@ const hasChanges = useMemo(() => {
           });
 
           try {
-            await saveDayOverrides(existingSchedule.id, overridesList);
+            await saveDayOverrides(existingSchedule.id, overridesList, { sync: false });
             await deleteSchedulePause(pause.id);
 
             setOverrides(nextOverrides);
@@ -423,6 +485,8 @@ const hasChanges = useMemo(() => {
             });
           } catch (error) {
             Alert.alert('Не удалось удалить паузу', String(error));
+          } finally {
+            endBusy();
           }
         },
       },
@@ -430,6 +494,7 @@ const hasChanges = useMemo(() => {
   }
 
   async function handleSave() {
+    if (!beginBusy()) return;
     const nativeSchedule: NativeWorkSchedule = {
       id: existingSchedule?.id ?? (uuid.v4() as string),
       name,
@@ -452,7 +517,7 @@ const hasChanges = useMemo(() => {
     };
 
     try {
-      await saveWorkSchedule(nativeSchedule);
+      await saveWorkSchedule(nativeSchedule, { sync: false });
 
       // Если новое время графика совпало с тем, что раньше было поставлено
       // "на дату", такая правка больше ничего не меняет — убираем её, чтобы
@@ -484,6 +549,8 @@ const hasChanges = useMemo(() => {
       }
     } catch (error) {
       Alert.alert('Не удалось сохранить график', String(error));
+    } finally {
+      endBusy();
     }
   }
 
@@ -637,15 +704,23 @@ const hasChanges = useMemo(() => {
                 )}
 
                 <View style={styles.pauseFormButtons}>
-                  <Pressable style={styles.pauseFormCancel} onPress={() => setIsPauseFormOpen(false)}>
+                  <Pressable
+                    style={styles.pauseFormCancel}
+                    disabled={isBusy}
+                    onPress={() => setIsPauseFormOpen(false)}
+                  >
                     <Text style={styles.pauseFormCancelText}>Назад</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.pauseFormSave, !pauseLabel.trim() && styles.saveButtonDisabled]}
-                    disabled={!pauseLabel.trim()}
+                    style={[styles.pauseFormSave, (!pauseLabel.trim() || isBusy) && styles.saveButtonDisabled]}
+                    disabled={!pauseLabel.trim() || isBusy}
                     onPress={handleSavePause}
                   >
-                    <Text style={styles.pauseFormSaveText}>Сохранить</Text>
+                    {isBusy ? (
+                      <ActivityIndicator color={colors.background} />
+                    ) : (
+                      <Text style={styles.pauseFormSaveText}>Сохранить</Text>
+                    )}
                   </Pressable>
                 </View>
               </View>
@@ -701,6 +776,12 @@ const hasChanges = useMemo(() => {
                   style={styles.dayCell}
                   disabled={!inCurrentMonth}
                   onPress={() => (isPauseSelectMode ? handlePauseDayTap(day) : handleDayTap(day))}
+                  onLongPress={() => {
+                    if (isPauseSelectMode || day.getTime() < startOfDay(today).getTime()) return;
+                    const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+                    setSheetDate(iso);
+                  }}
+                  delayLongPress={350}
                 >
                     <View
                       style={[
@@ -748,6 +829,7 @@ const hasChanges = useMemo(() => {
             <Text style={styles.legendText}>Из календаря</Text>
           </View>
         </View>
+        <Text style={styles.longPressHint}>* Удерживай число, чтобы добавить на эту дату напоминание или будильник.</Text>
       </View>
 
       <Text style={styles.sectionLabel}>Начать цикл с</Text>
@@ -787,14 +869,31 @@ const hasChanges = useMemo(() => {
 
 {showSaveButton && (
         <Pressable
-          style={styles.saveButton}
+          style={[styles.saveButton, isBusy && styles.saveButtonDisabled]}
+          disabled={isBusy}
           onPress={handleSave}
         >
-          <Text style={styles.saveButtonText}>
-            {isEditing ? 'Сохранить изменения' : 'Сохранить график'}
-          </Text>
+          {isBusy ? (
+            <ActivityIndicator color={colors.background} />
+          ) : (
+            <Text style={styles.saveButtonText}>
+              {isEditing ? 'Сохранить изменения' : 'Сохранить график'}
+            </Text>
+          )}
         </Pressable>
       )}
+
+      <DaySheet
+        visible={sheetDate !== null}
+        details={sheetDetails}
+        schedule={null}
+        timeOverrides={timeOverrides}
+        extraAlarms={extraAlarms}
+        onClose={() => setSheetDate(null)}
+        onChanged={reloadMarks}
+        onOpenEvent={event => openEventScreen({ existingEvent: event })}
+        onAddReminder={date => openEventScreen({ date })}
+      />
     </ScrollView>
   );
 }
@@ -898,6 +997,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.pauseAccent,
   },
+  longPressHint: { ...typography.caption, fontSize: 11, color: colors.textSecondary, opacity: 0.4, marginTop: spacing.md },
   legendText: { ...typography.caption, color: colors.textSecondary },
   saveButton: {
     marginTop: spacing.xl,

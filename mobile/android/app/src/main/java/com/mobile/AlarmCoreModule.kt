@@ -434,4 +434,38 @@ fun deleteAlarmTimeOverride(scheduleId: String, date: String, ruleId: String, pr
         promise.reject("DELETE_TIME_OVERRIDE_ERROR", e.message, e)
     }
 }
+
+    // --- Простые настройки приложения (ключ -> строка) --------------------------
+
+    private fun prefs() =
+        reactApplicationContext.getSharedPreferences("smart_alarm_settings", android.content.Context.MODE_PRIVATE)
+
+    @ReactMethod
+    fun getSetting(key: String, promise: Promise) {
+        try {
+            promise.resolve(prefs().getString(key, null))
+        } catch (e: Exception) {
+            promise.reject("GET_SETTING_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun setSetting(key: String, value: String, promise: Promise) {
+        try {
+            prefs().edit().putString(key, value).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("SET_SETTING_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun removeSetting(key: String, promise: Promise) {
+        try {
+            prefs().edit().remove(key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("REMOVE_SETTING_ERROR", e.message, e)
+        }
+    }
 }

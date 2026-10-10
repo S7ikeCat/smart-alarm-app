@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { RotateCcw } from 'lucide-react-native';
+import { Bell, RotateCcw } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing } from '../theme/spacing';
@@ -39,6 +39,8 @@ type Props = {
   onClose: () => void;
   onChanged: () => void;
   onOpenEvent: (event: NativeCustomEvent) => void;
+  /** Если задан — в шторке появляется кнопка «+ Напоминание» (событие на эту дату). */
+  onAddReminder?: (dateKey: string) => void;
 };
 
 /** Шторка с подробностями дня: будильники графика (время можно поменять на этот день), дополнительные, события. */
@@ -51,6 +53,7 @@ export function DaySheet({
   onClose,
   onChanged,
   onOpenEvent,
+  onAddReminder,
 }: Props) {
   const [mode, setMode] = useState<Mode>({ type: 'list' });
 
@@ -180,6 +183,12 @@ export function DaySheet({
         <Pressable style={styles.primary} onPress={() => setMode({ type: 'extra', alarm: null })}>
           <Text style={styles.primaryText}>+ Будильник на этот день</Text>
         </Pressable>
+        {onAddReminder && (
+          <Pressable style={styles.outline} onPress={() => onAddReminder(dateKey)}>
+            <Bell color={colors.accent} size={18} />
+            <Text style={styles.outlineText}>+ Напоминание на этот день</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.secondary} onPress={onClose}>
           <Text style={styles.secondaryText}>Закрыть</Text>
         </Pressable>
