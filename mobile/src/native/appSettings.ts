@@ -54,6 +54,7 @@ export type RingSettings = {
   vibration: boolean;
   ringtoneUri: string | null; // null = стандартный системный будильник
   ringtoneTitle: string;
+  shakeDismiss: boolean; // выключать будильник только встряской
 };
 
 export const RING_DEFAULTS: RingSettings = {
@@ -63,6 +64,7 @@ export const RING_DEFAULTS: RingSettings = {
   vibration: true,
   ringtoneUri: null,
   ringtoneTitle: 'Стандартная',
+  shakeDismiss: false,
 };
 
 function toInt(value: string | null, fallback: number): number {
@@ -72,13 +74,14 @@ function toInt(value: string | null, fallback: number): number {
 
 export async function loadRingSettings(): Promise<RingSettings> {
   try {
-    const [snooze, limit, fade, vibration, uri, title] = await Promise.all([
+    const [snooze, limit, fade, vibration, uri, title, shake] = await Promise.all([
       getSetting('snooze_minutes'),
       getSetting('snooze_limit'),
       getSetting('fade_in_seconds'),
       getSetting('vibration'),
       getSetting('ringtone_uri'),
       getSetting('ringtone_title'),
+      getSetting('shake_dismiss'),
     ]);
     const hasUri = uri !== null && uri.trim().length > 0;
     return {
@@ -88,6 +91,7 @@ export async function loadRingSettings(): Promise<RingSettings> {
       vibration: vibration !== '0',
       ringtoneUri: hasUri ? uri : null,
       ringtoneTitle: hasUri && title ? title : RING_DEFAULTS.ringtoneTitle,
+      shakeDismiss: shake === '1',
     };
   } catch {
     return RING_DEFAULTS;
@@ -105,6 +109,10 @@ export function saveFadeInSeconds(value: number) {
 }
 export function saveVibration(value: boolean) {
   return setSetting('vibration', value ? '1' : '0');
+}
+
+export function saveShakeDismiss(value: boolean) {
+  return setSetting('shake_dismiss', value ? '1' : '0');
 }
 
 export type PickedRingtone = { uri: string; title: string };

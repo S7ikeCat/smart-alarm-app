@@ -141,14 +141,18 @@ class AlarmService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
-            .setContentText("Нажми, чтобы открыть")
+            .setContentText(if (AlarmSettings.shakeRequired(this)) "Нажми и встряхни телефон" else "Нажми, чтобы открыть")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setContentIntent(activityPending)
             .setFullScreenIntent(activityPending, true)
-            .addAction(0, "Выключить", servicePending(ACTION_STOP, 1))
+
+        // Режим «встряхни» — выключить из шторки нельзя, только на экране звонка.
+        if (!AlarmSettings.shakeRequired(this)) {
+            builder.addAction(0, "Выключить", servicePending(ACTION_STOP, 1))
+        }
 
         // Лимит снузов исчерпан — кнопку «Отложить» не показываем вовсе.
         if (AlarmSettings.snoozesLeft(this, alarmId) != 0) {

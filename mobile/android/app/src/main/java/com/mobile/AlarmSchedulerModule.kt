@@ -228,6 +228,24 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
         )
     }
 
+    /** Показывает экран звонка без звука и без будильника — для подгонки внешнего вида. */
+    @ReactMethod
+    fun showRingPreview(promise: Promise) {
+        try {
+            val intent = Intent(reactApplicationContext, AlarmRingActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra("preview", true)
+                putExtra("label", "Будильник")
+                putExtra("snoozesLeft", 2)
+                putExtra("snoozeMinutes", AlarmSettings.snoozeMinutes(reactApplicationContext))
+            }
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("PREVIEW_ERROR", e.message, e)
+        }
+    }
+
     @ReactMethod
     fun scheduleTestAlarm(delaySeconds: Double, promise: Promise) {
         try {

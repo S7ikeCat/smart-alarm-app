@@ -54,6 +54,8 @@
         android:showWhenLocked="true"
         android:turnScreenOn="true"
         android:excludeFromRecents="true"
-        android:theme="@style/AppTheme" />
+        android:taskAffinity=""
+        android:launchMode="singleInstance"
+        android:theme="@style/RingTheme" />
     </application>
 </manifest>

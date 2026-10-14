@@ -19,6 +19,7 @@ object AlarmSettings {
     const val KEY_VIBRATION = "vibration"
     const val KEY_RINGTONE_URI = "ringtone_uri"
     const val KEY_RINGTONE_TITLE = "ringtone_title"
+    const val KEY_SHAKE_DISMISS = "shake_dismiss"
 
     // Служебные ключи счётчика снузов (не настройки пользователя).
     private const val KEY_SNOOZE_ALARM_ID = "_snooze_alarm_id"
@@ -43,6 +44,16 @@ object AlarmSettings {
     fun fadeInSeconds(context: Context): Int {
         val value = prefs(context).getString(KEY_FADE_IN, null)?.toIntOrNull() ?: 10
         return value.coerceIn(0, 60)
+    }
+
+    /**
+     * Выключение встряской: включено в настройках И на телефоне есть акселерометр
+     * (иначе человек не смог бы выключить будильник вообще).
+     */
+    fun shakeRequired(context: Context): Boolean {
+        if (prefs(context).getString(KEY_SHAKE_DISMISS, null) != "1") return false
+        val sm = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+        return sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) != null
     }
 
     fun vibrationEnabled(context: Context): Boolean =

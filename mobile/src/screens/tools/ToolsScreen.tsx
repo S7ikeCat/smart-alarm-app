@@ -10,6 +10,7 @@ import {
   hasFullScreenIntentPermission,
   requestFullScreenIntentPermission,
   scheduleTestAlarm,
+  showRingPreview,
   readJournal,
   clearJournal,
 } from '../../native/alarmScheduler';
@@ -70,6 +71,13 @@ export function ToolsScreen() {
 
       <Pressable style={styles.button} onPress={handleTestAlarm}>
         <Text style={styles.buttonText}>Тест: будильник через 10 сек</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.button}
+        onPress={() => showRingPreview().catch(error => Alert.alert('Не удалось показать экран', String(error)))}
+      >
+        <Text style={styles.buttonText}>Показать экран звонка (без звука)</Text>
       </Pressable>
 
       <View style={styles.journalHeader}>

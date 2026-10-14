@@ -30,6 +30,10 @@ export function requestExactAlarmPermission(): Promise<void> {
     return AlarmScheduler.openOemBackgroundSettings();
   }
   
+  export function showRingPreview(): Promise<void> {
+    return AlarmScheduler.showRingPreview();
+  }
+  
   export function scheduleTestAlarm(delaySeconds: number): Promise<void> {
     return AlarmScheduler.scheduleTestAlarm(delaySeconds);
   }

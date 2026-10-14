@@ -27,6 +27,7 @@ import {
   saveSnoozeLimit,
   saveFadeInSeconds,
   saveVibration,
+  saveShakeDismiss,
   pickSystemRingtone,
   pickAudioFile,
   saveRingtone,
@@ -36,7 +37,7 @@ import {
 } from '../../native/appSettings';
 
 // Метка версии JS-кода: по ней видно, какая сборка реально стоит на телефоне.
-const JS_BUILD = '14.10 · 12:20';
+const JS_BUILD = '14.10 · 13:25';
 
 const SNOOZE_MINUTES_OPTIONS = [1, 3, 5, 10, 15];
 const SNOOZE_LIMIT_OPTIONS = [1, 2, 3, 5, 0]; // 0 = без лимита
@@ -331,6 +332,23 @@ export function SettingsScreen() {
           trackColor={{ false: colors.border, true: colors.accent }}
           thumbColor={colors.textPrimary}
         />
+      </View>
+
+      <View style={[styles.card, styles.cardGap]}>
+        <View style={styles.switchCard}>
+          <View style={styles.switchText}>
+            <Text style={styles.cardTitle}>Выключать встряской</Text>
+            <Text style={styles.cardHintTight}>
+              Чтобы выключить будильник, один раз встряхни телефон. Отложить можно как обычно.
+            </Text>
+          </View>
+          <Switch
+            value={ring.shakeDismiss}
+            onValueChange={v => change('shakeDismiss', v, () => saveShakeDismiss(v))}
+            trackColor={{ false: colors.border, true: colors.accent }}
+            thumbColor={colors.textPrimary}
+          />
+        </View>
       </View>
 
       <Text style={styles.buildStamp}>Сборка интерфейса: {JS_BUILD}</Text>
