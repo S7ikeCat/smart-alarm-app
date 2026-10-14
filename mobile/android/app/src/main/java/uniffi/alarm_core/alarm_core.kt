@@ -757,6 +757,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -772,6 +774,8 @@ internal interface UniffiLib : Library {
         
     }
 
+    fun uniffi_alarm_core_fn_func_convert_event_time_ffi(`date`: RustBuffer.ByValue,`time`: RustBuffer.ByValue,`sourceTz`: RustBuffer.ByValue,`leadMinutes`: Int,`deviceTz`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_delete_alarm_time_override_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`ruleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_delete_custom_event_ffi(`dbPath`: RustBuffer.ByValue,`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -782,7 +786,7 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_alarm_core_fn_func_delete_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_alarm_core_fn_func_generate_extra_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_alarm_core_fn_func_generate_extra_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,`deviceTz`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -930,6 +934,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_alarm_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_checksum_func_convert_event_time_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_delete_alarm_time_override_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_delete_custom_event_ffi(
@@ -993,6 +999,9 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_alarm_core_checksum_func_convert_event_time_ffi() != 35235.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_delete_alarm_time_override_ffi() != 10792.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1008,7 +1017,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_delete_work_schedule_ffi() != 16715.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_alarm_core_checksum_func_generate_extra_alarms_ffi() != 22187.toShort()) {
+    if (lib.uniffi_alarm_core_checksum_func_generate_extra_alarms_ffi() != 9820.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi() != 61064.toShort()) {
@@ -1495,6 +1504,41 @@ public object FfiConverterTypeDayOverride: FfiConverterRustBuffer<DayOverride> {
 
 
 /**
+ * Локальные дата и время срабатывания (в поясе устройства).
+ */
+data class EventLocalTime (
+    var `date`: NaiveDate, 
+    var `timeLocal`: NaiveTime
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEventLocalTime: FfiConverterRustBuffer<EventLocalTime> {
+    override fun read(buf: ByteBuffer): EventLocalTime {
+        return EventLocalTime(
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterTypeNaiveTime.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EventLocalTime) = (
+            FfiConverterTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`)
+    )
+
+    override fun write(value: EventLocalTime, buf: ByteBuffer) {
+            FfiConverterTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
+    }
+}
+
+
+
+/**
  * Дополнительный будильник — живёт сам по себе, поверх смен и событий.
  * Именно он решает три задачи: будильник в выходной, будильник на
  * конкретную дату с любым временем и "серия" из нескольких подряд
@@ -1506,7 +1550,17 @@ data class ExtraAlarm (
     var `timeLocal`: NaiveTime, 
     var `kind`: ExtraAlarmKind, 
     var `date`: NaiveDate?, 
-    var `enabled`: kotlin.Boolean
+    var `enabled`: kotlin.Boolean, 
+    /**
+     * Если задан (IANA, например "Asia/Yekaterinburg"), то `date` и `time_local`
+     * — это время события в ЭТОМ поясе, а на телефоне будильник сработает
+     * в пересчитанное локальное время. Только для OneDate.
+     */
+    var `sourceTz`: kotlin.String?, 
+    /**
+     * За сколько минут до события разбудить (только вместе с `source_tz`).
+     */
+    var `leadMinutes`: kotlin.UInt
 ) {
     
     companion object
@@ -1524,6 +1578,8 @@ public object FfiConverterTypeExtraAlarm: FfiConverterRustBuffer<ExtraAlarm> {
             FfiConverterTypeExtraAlarmKind.read(buf),
             FfiConverterOptionalTypeNaiveDate.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterUInt.read(buf),
         )
     }
 
@@ -1533,7 +1589,9 @@ public object FfiConverterTypeExtraAlarm: FfiConverterRustBuffer<ExtraAlarm> {
             FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`) +
             FfiConverterTypeExtraAlarmKind.allocationSize(value.`kind`) +
             FfiConverterOptionalTypeNaiveDate.allocationSize(value.`date`) +
-            FfiConverterBoolean.allocationSize(value.`enabled`)
+            FfiConverterBoolean.allocationSize(value.`enabled`) +
+            FfiConverterOptionalString.allocationSize(value.`sourceTz`) +
+            FfiConverterUInt.allocationSize(value.`leadMinutes`)
     )
 
     override fun write(value: ExtraAlarm, buf: ByteBuffer) {
@@ -1543,6 +1601,8 @@ public object FfiConverterTypeExtraAlarm: FfiConverterRustBuffer<ExtraAlarm> {
             FfiConverterTypeExtraAlarmKind.write(value.`kind`, buf)
             FfiConverterOptionalTypeNaiveDate.write(value.`date`, buf)
             FfiConverterBoolean.write(value.`enabled`, buf)
+            FfiConverterOptionalString.write(value.`sourceTz`, buf)
+            FfiConverterUInt.write(value.`leadMinutes`, buf)
     }
 }
 
@@ -1734,6 +1794,14 @@ sealed class AlarmCoreException: kotlin.Exception() {
             get() = "details=${ `details` }"
     }
     
+    class InvalidTimezone(
+        
+        val `name`: kotlin.String
+        ) : AlarmCoreException() {
+        override val message
+            get() = "name=${ `name` }"
+    }
+    
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<AlarmCoreException> {
         override fun lift(error_buf: RustBuffer.ByValue): AlarmCoreException = FfiConverterTypeAlarmCoreError.lift(error_buf)
@@ -1756,6 +1824,9 @@ public object FfiConverterTypeAlarmCoreError : FfiConverterRustBuffer<AlarmCoreE
             2 -> AlarmCoreException.DatabaseException(
                 FfiConverterString.read(buf),
                 )
+            3 -> AlarmCoreException.InvalidTimezone(
+                FfiConverterString.read(buf),
+                )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
     }
@@ -1772,6 +1843,11 @@ public object FfiConverterTypeAlarmCoreError : FfiConverterRustBuffer<AlarmCoreE
                 4UL
                 + FfiConverterString.allocationSize(value.`details`)
             )
+            is AlarmCoreException.InvalidTimezone -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`name`)
+            )
         }
     }
 
@@ -1785,6 +1861,11 @@ public object FfiConverterTypeAlarmCoreError : FfiConverterRustBuffer<AlarmCoreE
             is AlarmCoreException.DatabaseException -> {
                 buf.putInt(2)
                 FfiConverterString.write(value.`details`, buf)
+                Unit
+            }
+            is AlarmCoreException.InvalidTimezone -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`name`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -2081,6 +2162,38 @@ public object FfiConverterTypeScheduleSource : FfiConverterRustBuffer<ScheduleSo
 }
 
 
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
+    }
+}
 
 
 
@@ -2456,6 +2569,19 @@ public typealias FfiConverterTypeNaiveTime = FfiConverterString
 public typealias Uuid = kotlin.String
 public typealias FfiConverterTypeUuid = FfiConverterString
         /**
+         * FFI: то же для вызова из Kotlin/RN (подсказка «10:00 (Екатеринбург) → 08:00»).
+         */
+    @Throws(AlarmCoreException::class) fun `convertEventTimeFfi`(`date`: NaiveDate, `time`: NaiveTime, `sourceTz`: kotlin.String, `leadMinutes`: kotlin.UInt, `deviceTz`: kotlin.String): EventLocalTime {
+            return FfiConverterTypeEventLocalTime.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_convert_event_time_ffi(
+        FfiConverterTypeNaiveDate.lower(`date`),FfiConverterTypeNaiveTime.lower(`time`),FfiConverterString.lower(`sourceTz`),FfiConverterUInt.lower(`leadMinutes`),FfiConverterString.lower(`deviceTz`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Убирает "время на дату" — будильник снова звонит по обычному правилу.
          */
     @Throws(AlarmCoreException::class) fun `deleteAlarmTimeOverrideFfi`(`dbPath`: kotlin.String, `scheduleId`: Uuid, `date`: NaiveDate, `ruleId`: Uuid)
@@ -2523,11 +2649,11 @@ public typealias FfiConverterTypeUuid = FfiConverterString
          * по паттерну активного графика с учётом overrides; нет активного графика —
          * все дни считаются выходными.
          */
-    @Throws(AlarmCoreException::class) fun `generateExtraAlarmsFfi`(`dbPath`: kotlin.String, `horizonMonths`: kotlin.UInt): List<ExtraAlarmInstance> {
+    @Throws(AlarmCoreException::class) fun `generateExtraAlarmsFfi`(`dbPath`: kotlin.String, `horizonMonths`: kotlin.UInt, `deviceTz`: kotlin.String): List<ExtraAlarmInstance> {
             return FfiConverterSequenceTypeExtraAlarmInstance.lift(
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_generate_extra_alarms_ffi(
-        FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),_status)
+        FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),FfiConverterString.lower(`deviceTz`),_status)
 }
     )
     }

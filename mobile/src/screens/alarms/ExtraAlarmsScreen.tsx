@@ -15,6 +15,7 @@ import {
   saveExtraAlarm,
   deleteExtraAlarm,
 } from '../../native/alarmCore';
+import { cityName } from '../../utils/timezones';
 import { KIND_LABELS, dateToKey, formatKeyLong, shortTime } from '../../utils/timeUtils';
 
 type SheetState =
@@ -145,6 +146,11 @@ export function ExtraAlarmsScreen() {
               )}
               <View style={styles.cardBody}>
                 <Text style={styles.time}>{shortTime(item.timeLocal)}</Text>
+                {!!item.sourceTz && (
+                  <Text style={styles.meta} numberOfLines={1}>
+                    по времени: {cityName(item.sourceTz)}
+                  </Text>
+                )}
                 <Text style={styles.meta} numberOfLines={1}>
                   {item.label ? `${item.label} · ` : ''}
                   {describe(item)}

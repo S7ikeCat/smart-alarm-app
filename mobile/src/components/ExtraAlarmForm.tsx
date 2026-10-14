@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
@@ -10,14 +10,19 @@ import {
   NativeExtraAlarm,
   saveExtraAlarm,
   deleteExtraAlarm,
+  convertEventTime,
 } from '../native/alarmCore';
+import { CITY_ZONES, cityName, searchCities } from '../utils/timezones';
 import {
   KIND_LABELS,
   addDaysToKey,
   dateToKey,
   formatKeyLong,
   newId,
+  shortTime,
+  keyToDate,
 } from '../utils/timeUtils';
+
 
 const KINDS: ExtraAlarmKind[] = ['WORK_DAYS', 'REST_DAYS', 'ALL_DAYS', 'ONE_DATE'];
 
@@ -89,6 +94,35 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
   );
   const [date, setDate] = useState(alarm?.date ?? fixedDate ?? dateToKey(new Date()));
   const [busy, setBusy] = useState(false);
+  const [tzOn, setTzOn] = useState(!!alarm?.sourceTz);
+  const [tz, setTz] = useState(alarm?.sourceTz ?? CITY_ZONES[3].tz);
+  const [query, setQuery] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [preview, setPreview] = useState<{ date: string; timeLocal: string } | null>(null);
+
+  const effectiveKind: ExtraAlarmKind = tzOn ? 'ONE_DATE' : kind;
+
+  useEffect(() => {
+    if (!tzOn) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    convertEventTime(date, time, tz, 0)
+      .then(r => !cancelled && setPreview(r))
+      .catch(() => !cancelled && setPreview(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [tzOn, date, time, tz]);
+
+  function dayWord(localDate: string): string {
+    const diff = Math.round(
+      (keyToDate(localDate).getTime() - keyToDate(date).getTime()) / 86400000,
+    );
+    if (diff === 0) return '';
+    return diff < 0 ? ' (днём раньше)' : ' (днём позже)';
+  }
 
   async function handleSave() {
     setBusy(true);
@@ -97,9 +131,11 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
         id: alarm?.id ?? newId(),
         label: label.trim(),
         timeLocal: time,
-        kind,
-        date: kind === 'ONE_DATE' ? date : null,
+        kind: effectiveKind,
+        date: effectiveKind === 'ONE_DATE' ? date : null,
         enabled: alarm?.enabled ?? true,
+        sourceTz: tzOn ? tz : null,
+        leadMinutes: 0,
       });
       onDone();
     } catch (error) {
@@ -133,6 +169,7 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
         </Text>
       )}
 
+      {tzOn && <Text style={styles.fixedHint}>Время события в: {cityName(tz)}</Text>}
       <TimeStepper value={time} onChange={setTime} />
 
       <TextInput
@@ -144,11 +181,67 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
         maxLength={40}
       />
 
+      {(!fixedDate || !alarm || alarm.kind === 'ONE_DATE') && (
+        <View style={styles.tzBlock}>
+          <View style={styles.tzRow}>
+            <Text style={styles.tzTitle}>Время в другом часовом поясе</Text>
+            <Switch
+              value={tzOn}
+              onValueChange={v => {
+                setTzOn(v);
+                if (v) setKind('ONE_DATE');
+              }}
+              trackColor={{ false: colors.border, true: colors.accent }}
+            />
+          </View>
+          {tzOn && (
+            <>
+              <Pressable style={styles.cityBtn} onPress={() => setPickerOpen(o => !o)}>
+                <Text style={styles.cityBtnText}>{cityName(tz)}</Text>
+                <Text style={styles.cityBtnHint}>{pickerOpen ? 'скрыть' : 'сменить'}</Text>
+              </Pressable>
+              {pickerOpen && (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Поиск города"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                  <ScrollView style={styles.cityList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {searchCities(query).map(c => (
+                      <Pressable
+                        key={c.tz}
+                        style={[styles.cityItem, c.tz === tz && styles.cityItemActive]}
+                        onPress={() => {
+                          setTz(c.tz);
+                          setPickerOpen(false);
+                          setQuery('');
+                        }}
+                      >
+                        <Text style={styles.cityItemText}>{c.ru}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
+              {preview && (
+                <Text style={styles.tzPreview}>
+                  {shortTime(time)} ({cityName(tz)}) → сработает в {shortTime(preview.timeLocal)} по твоему времени
+                  {dayWord(preview.date)}
+                </Text>
+              )}
+            </>
+          )}
+        </View>
+      )}
+
       {!fixedDate && (
         <>
           <Text style={styles.sectionLabel}>Когда звонит</Text>
-          <KindPicker value={kind} onChange={setKind} />
-          {kind === 'ONE_DATE' && <DateStepper value={date} onChange={setDate} />}
+          {!tzOn && <KindPicker value={kind} onChange={setKind} />}
+          {effectiveKind === 'ONE_DATE' && <DateStepper value={date} onChange={setDate} />}
         </>
       )}
 
@@ -209,6 +302,25 @@ const styles = StyleSheet.create({
   },
   dateBtnText: { ...typography.caption, color: colors.textPrimary },
   dateText: { ...typography.body, color: colors.textPrimary, flex: 1, textAlign: 'center' },
+  tzBlock: { marginBottom: spacing.sm },
+  tzRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  tzTitle: { ...typography.body, color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
+  cityBtn: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  cityBtnText: { ...typography.body, color: colors.textPrimary },
+  cityBtnHint: { ...typography.caption, color: colors.textSecondary },
+  cityList: { maxHeight: 180, marginBottom: spacing.md },
+  cityItem: { paddingVertical: 10, paddingHorizontal: spacing.md, borderRadius: 10 },
+  cityItemActive: { backgroundColor: colors.background },
+  cityItemText: { ...typography.body, color: colors.textPrimary },
+  tzPreview: { ...typography.caption, color: colors.accent, marginBottom: spacing.md },
   primary: {
     backgroundColor: colors.accent,
     borderRadius: 12,

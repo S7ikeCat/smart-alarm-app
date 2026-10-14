@@ -69,7 +69,7 @@ pub fn init_db(path: &str) -> Result<Connection> {
 /// Текущая версия схемы. Увеличиваем на 1 при каждом изменении таблиц и
 /// добавляем соответствующий шаг в `migrate`. Данные пользователя при этом
 /// не теряются — никаких "очистить данные приложения" больше не нужно.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// Накатывает недостающие шаги схемы. Версия хранится в `PRAGMA user_version`
 /// (0 = база создана до появления миграций; структура такая же, как v1).
@@ -128,7 +128,21 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
-    debug_assert_eq!(SCHEMA_VERSION, 2);
+    if version < 3 {
+        // v3: будильник «по чужому часовому поясу» — пояс события и
+        // «разбудить за N минут». У старых будильников пояса нет (NULL).
+        conn.execute_batch(
+            "
+            BEGIN;
+            ALTER TABLE extra_alarms ADD COLUMN source_tz TEXT;
+            ALTER TABLE extra_alarms ADD COLUMN lead_minutes INTEGER NOT NULL DEFAULT 0;
+            PRAGMA user_version = 3;
+            COMMIT;
+            ",
+        )?;
+    }
+
+    debug_assert_eq!(SCHEMA_VERSION, 3);
     Ok(())
 }
 
@@ -504,7 +518,7 @@ pub fn generate_upcoming_alarms_from(
     Ok(all_instances)
 }
 
-use crate::{ExtraAlarm, ExtraAlarmInstance, ExtraAlarmKind, AlarmTimeOverride};
+use crate::{ExtraAlarm, ExtraAlarmInstance, ExtraAlarmKind, AlarmTimeOverride, convert_event_time};
 
 fn kind_to_str(k: ExtraAlarmKind) -> &'static str {
     match k {
@@ -529,14 +543,16 @@ fn kind_from_str(s: &str) -> ExtraAlarmKind {
 pub fn save_extra_alarm_ffi(db_path: String, alarm: ExtraAlarm) -> Result<(), AlarmCoreError> {
     let conn = init_db(&db_path).map_err(db_err)?;
     conn.execute(
-        "INSERT INTO extra_alarms (id, label, time_local, kind, date, enabled)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO extra_alarms (id, label, time_local, kind, date, enabled, source_tz, lead_minutes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(id) DO UPDATE SET
             label = excluded.label,
             time_local = excluded.time_local,
             kind = excluded.kind,
             date = excluded.date,
-            enabled = excluded.enabled",
+            enabled = excluded.enabled,
+            source_tz = excluded.source_tz,
+            lead_minutes = excluded.lead_minutes",
         (
             alarm.id.to_string(),
             &alarm.label,
@@ -544,6 +560,8 @@ pub fn save_extra_alarm_ffi(db_path: String, alarm: ExtraAlarm) -> Result<(), Al
             kind_to_str(alarm.kind),
             alarm.date.map(|d| d.to_string()),
             alarm.enabled,
+            &alarm.source_tz,
+            alarm.lead_minutes,
         ),
     )
     .map_err(db_err)?;
@@ -555,7 +573,7 @@ pub fn save_extra_alarm_ffi(db_path: String, alarm: ExtraAlarm) -> Result<(), Al
 pub fn load_extra_alarms_ffi(db_path: String) -> Result<Vec<ExtraAlarm>, AlarmCoreError> {
     let conn = init_db(&db_path).map_err(db_err)?;
     let mut stmt = conn
-        .prepare("SELECT id, label, time_local, kind, date, enabled FROM extra_alarms ORDER BY time_local")
+        .prepare("SELECT id, label, time_local, kind, date, enabled, source_tz, lead_minutes FROM extra_alarms ORDER BY time_local")
         .map_err(db_err)?;
     let rows = stmt
         .query_map([], |row| {
@@ -570,6 +588,8 @@ pub fn load_extra_alarms_ffi(db_path: String) -> Result<Vec<ExtraAlarm>, AlarmCo
                 kind: kind_from_str(&kind_str),
                 date: date_str.map(|d| d.parse().expect("stored date should always be valid")),
                 enabled: row.get(5)?,
+                source_tz: row.get(6)?,
+                lead_minutes: row.get(7)?,
             })
         })
         .map_err(db_err)?;
@@ -651,14 +671,16 @@ pub fn delete_alarm_time_override_ffi(
 pub fn generate_extra_alarms_ffi(
     db_path: String,
     horizon_months: u32,
+    device_tz: String,
 ) -> Result<Vec<ExtraAlarmInstance>, AlarmCoreError> {
-    generate_extra_alarms_from(&db_path, window_start_today(), horizon_months)
+    generate_extra_alarms_from(&db_path, window_start_today(), horizon_months, &device_tz)
 }
 
 pub fn generate_extra_alarms_from(
     db_path: &str,
     from: chrono::NaiveDate,
     horizon_months: u32,
+    device_tz: &str,
 ) -> Result<Vec<ExtraAlarmInstance>, AlarmCoreError> {
     let conn = init_db(db_path).map_err(db_err)?;
     let schedules = load_work_schedules(&conn).map_err(db_err)?;
@@ -690,11 +712,21 @@ pub fn generate_extra_alarms_from(
     for alarm in alarms.iter().filter(|a| a.enabled) {
         if alarm.kind == ExtraAlarmKind::OneDate {
             if let Some(d) = alarm.date {
-                if d >= from {
+                // Будильник по чужому поясу: дату и время пересчитываем в местные.
+                // Пересчёт делаем при каждой генерации, поэтому после смены пояса
+                // на телефоне всё само встаёт на нужное место.
+                let (day, time) = match &alarm.source_tz {
+                    Some(tz) => match convert_event_time(d, alarm.time_local, tz, alarm.lead_minutes, device_tz) {
+                        Ok(local) => (local.date, local.time_local),
+                        Err(_) => continue, // неизвестный пояс — лучше пропустить, чем звонить не вовремя
+                    },
+                    None => (d, alarm.time_local),
+                };
+                if day >= from {
                     out.push(ExtraAlarmInstance {
                         alarm_id: alarm.id,
-                        date: d,
-                        time_local: alarm.time_local,
+                        date: day,
+                        time_local: time,
                         label: alarm.label.clone(),
                     });
                 }
@@ -1377,7 +1409,7 @@ fn extra_alarms_work_rest_and_stacked() {
     let mk = |label: &str, h: u32, m: u32, kind, date| ExtraAlarm {
         id: Uuid::new_v4(), label: label.to_string(),
         time_local: NaiveTime::from_hms_opt(h, m, 0).unwrap(),
-        kind, date, enabled: true,
+        kind, date, enabled: true, source_tz: None, lead_minutes: 0,
     };
     // Будильник в выходной, серия из трёх на рабочие дни и один на дату.
     save_extra_alarm_ffi(p.clone(), mk("Выходной", 9, 0, ExtraAlarmKind::RestDays, None)).unwrap();
@@ -1388,7 +1420,7 @@ fn extra_alarms_work_rest_and_stacked() {
     save_extra_alarm_ffi(p.clone(), mk("Разовый", 11, 0, ExtraAlarmKind::OneDate, Some(d))).unwrap();
 
     let from = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-    let list = generate_extra_alarms_from(&p, from, 1).unwrap();
+    let list = generate_extra_alarms_from(&p, from, 1, "Europe/Moscow").unwrap();
 
     let on = |day: u32| -> Vec<&str> {
         list.iter()
@@ -1405,8 +1437,100 @@ fn extra_alarms_work_rest_and_stacked() {
     let mut off = mk("Выкл", 5, 0, ExtraAlarmKind::AllDays, None);
     off.enabled = false;
     save_extra_alarm_ffi(p.clone(), off).unwrap();
-    let list2 = generate_extra_alarms_from(&p, from, 1).unwrap();
+    let list2 = generate_extra_alarms_from(&p, from, 1, "Europe/Moscow").unwrap();
     assert!(!list2.iter().any(|i| i.label == "Выкл"));
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn timezone_event_alarm_converts_and_survives_dst() {
+    use crate::convert_event_time;
+    let d = |y, m, day| NaiveDate::from_ymd_opt(y, m, day).unwrap();
+    let t = |h, m| NaiveTime::from_hms_opt(h, m, 0).unwrap();
+
+    // Екатеринбург (+5) -> Москва (+3): на два часа раньше.
+    let r = convert_event_time(d(2026, 10, 20), t(10, 0), "Asia/Yekaterinburg", 0, "Europe/Moscow").unwrap();
+    assert_eq!((r.date, r.time_local), (d(2026, 10, 20), t(8, 0)));
+
+    // «Разбудить за 60 минут» отнимается от пересчитанного времени.
+    let r = convert_event_time(d(2026, 10, 20), t(10, 0), "Asia/Yekaterinburg", 60, "Europe/Moscow").unwrap();
+    assert_eq!((r.date, r.time_local), (d(2026, 10, 20), t(7, 0)));
+
+    // Переход через полночь: 01:00 в Екатеринбурге это 23:00 предыдущего дня в Москве.
+    let r = convert_event_time(d(2026, 10, 20), t(1, 0), "Asia/Yekaterinburg", 0, "Europe/Moscow").unwrap();
+    assert_eq!((r.date, r.time_local), (d(2026, 10, 19), t(23, 0)));
+
+    // Нью-Йорк переводит стрелки: 12 марта 2027 ещё зима (UTC-5), 15 марта уже лето (UTC-4).
+    let winter = convert_event_time(d(2027, 3, 12), t(9, 0), "America/New_York", 0, "Europe/Moscow").unwrap();
+    let summer = convert_event_time(d(2027, 3, 15), t(9, 0), "America/New_York", 0, "Europe/Moscow").unwrap();
+    assert_eq!(winter.time_local, t(17, 0));
+    assert_eq!(summer.time_local, t(16, 0));
+
+    // Той же встрече достаточно смены пояса телефона: в Екатеринбурге это 18:00.
+    let moved = convert_event_time(d(2026, 10, 20), t(10, 0), "Asia/Yekaterinburg", 0, "Asia/Yekaterinburg").unwrap();
+    assert_eq!(moved.time_local, t(10, 0));
+
+    // «Дыра» при переводе стрелок вперёд (02:30 в Нью-Йорке 14 марта 2027) не паникует.
+    assert!(convert_event_time(d(2027, 3, 14), t(2, 30), "America/New_York", 0, "Europe/Moscow").is_ok());
+
+    // Неизвестный пояс — ошибка, а не паника.
+    assert!(convert_event_time(d(2026, 10, 20), t(10, 0), "Mars/Olympus", 0, "Europe/Moscow").is_err());
+}
+
+#[test]
+fn timezone_alarm_follows_device_timezone_and_migrates() {
+    let db_path = std::env::temp_dir().join(format!("test_tz_{}.db", Uuid::new_v4()));
+    let p = db_path.to_str().unwrap().to_string();
+
+    // База версии 2 (до часовых поясов) с обычным будильником: должна пережить миграцию.
+    {
+        let old = Connection::open(&db_path).unwrap();
+        old.execute_batch(
+            "CREATE TABLE work_schedules (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, pattern_json TEXT NOT NULL,
+                source_json TEXT NOT NULL, start_date TEXT NOT NULL, shift_start_time TEXT NOT NULL,
+                alarms_json TEXT NOT NULL, is_active INTEGER DEFAULT 1, is_paused INTEGER DEFAULT 0);
+             CREATE TABLE extra_alarms (id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', time_local TEXT NOT NULL,
+                kind TEXT NOT NULL, date TEXT, enabled INTEGER NOT NULL DEFAULT 1);
+             INSERT INTO extra_alarms VALUES ('22222222-2222-2222-2222-222222222222','Старый','07:30:00','all_days',NULL,1);
+             PRAGMA user_version = 2;",
+        ).unwrap();
+    }
+    let loaded = load_extra_alarms_ffi(p.clone()).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].label, "Старый");
+    assert!(loaded[0].source_tz.is_none());
+    assert_eq!(loaded[0].lead_minutes, 0);
+
+    // Встреча 10:00 по Екатеринбургу на 20 октября 2026.
+    let meeting = ExtraAlarm {
+        id: Uuid::new_v4(), label: "Встреча".to_string(),
+        time_local: NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
+        kind: ExtraAlarmKind::OneDate,
+        date: Some(NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()),
+        enabled: true,
+        source_tz: Some("Asia/Yekaterinburg".to_string()), lead_minutes: 30,
+    };
+    save_extra_alarm_ffi(p.clone(), meeting.clone()).unwrap();
+
+    let from = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+    let find = |list: &Vec<ExtraAlarmInstance>| {
+        list.iter().find(|i| i.label == "Встреча").map(|i| (i.date, i.time_local)).unwrap()
+    };
+
+    // Телефон в Москве: 10:00 Екб = 08:00 МСК, минус 30 минут = 07:30.
+    let msk = generate_extra_alarms_from(&p, from, 1, "Europe/Moscow").unwrap();
+    assert_eq!(find(&msk), (NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(), NaiveTime::from_hms_opt(7, 30, 0).unwrap()));
+
+    // Тот же будильник после перелёта в Екатеринбург: 09:30 по местным часам.
+    let ekb = generate_extra_alarms_from(&p, from, 1, "Asia/Yekaterinburg").unwrap();
+    assert_eq!(find(&ekb), (NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(), NaiveTime::from_hms_opt(9, 30, 0).unwrap()));
+
+    // Сохранённые данные остаются в поясе события, ничего не «портится».
+    let stored = load_extra_alarms_ffi(p.clone()).unwrap();
+    let m = stored.iter().find(|a| a.label == "Встреча").unwrap();
+    assert_eq!(m.time_local, NaiveTime::from_hms_opt(10, 0, 0).unwrap());
+    assert_eq!(m.source_tz.as_deref(), Some("Asia/Yekaterinburg"));
 
     std::fs::remove_file(db_path).ok();
 }

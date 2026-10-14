@@ -36,7 +36,7 @@ import {
 } from '../../native/appSettings';
 
 // Метка версии JS-кода: по ней видно, какая сборка реально стоит на телефоне.
-const JS_BUILD = '14.10 · 11:25';
+const JS_BUILD = '14.10 · 12:20';
 
 const SNOOZE_MINUTES_OPTIONS = [1, 3, 5, 10, 15];
 const SNOOZE_LIMIT_OPTIONS = [1, 2, 3, 5, 0]; // 0 = без лимита

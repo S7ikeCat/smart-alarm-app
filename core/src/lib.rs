@@ -115,6 +115,12 @@ pub struct ExtraAlarm {
     pub kind: ExtraAlarmKind,
     pub date: Option<NaiveDate>, // нужна только для OneDate
     pub enabled: bool,
+    /// Если задан (IANA, например "Asia/Yekaterinburg"), то `date` и `time_local`
+    /// — это время события в ЭТОМ поясе, а на телефоне будильник сработает
+    /// в пересчитанное локальное время. Только для OneDate.
+    pub source_tz: Option<String>,
+    /// За сколько минут до события разбудить (только вместе с `source_tz`).
+    pub lead_minutes: u32,
 }
 
 /// Конкретное срабатывание дополнительного будильника на дату.
@@ -220,6 +226,8 @@ impl UniffiCustomTypeConverter for NaiveTime {
         InstanceNotFound { id: String },
         #[error("database error: {details}")]
         DatabaseError { details: String },
+        #[error("unknown timezone: {name}")]
+        InvalidTimezone { name: String },
     }
 
 /// Рабочий ли день с номером `offset` (дней от start_date) по паттерну графика.
@@ -391,6 +399,60 @@ pub fn toggle_month(
 
 
 //ТЕСТ
+/// Локальные дата и время срабатывания (в поясе устройства).
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct EventLocalTime {
+    pub date: NaiveDate,
+    pub time_local: NaiveTime,
+}
+
+/// Переводит время события из часового пояса `source_tz` в пояс устройства и
+/// отнимает `lead_minutes` («разбудить за N минут до события»).
+/// Работает и на границах перевода стрелок:
+/// - время встречается дважды (стрелки назад) — берём первое вхождение;
+/// - такого времени не бывает (стрелки вперёд) — считаем, что событие на час позже.
+pub fn convert_event_time(
+    date: NaiveDate,
+    time: NaiveTime,
+    source_tz: &str,
+    lead_minutes: u32,
+    device_tz: &str,
+) -> Result<EventLocalTime, AlarmCoreError> {
+    let src: Tz = source_tz
+        .parse()
+        .map_err(|_| AlarmCoreError::InvalidTimezone { name: source_tz.to_string() })?;
+    let dev: Tz = device_tz
+        .parse()
+        .map_err(|_| AlarmCoreError::InvalidTimezone { name: device_tz.to_string() })?;
+
+    let naive = date.and_time(time);
+    let source_dt = match src.from_local_datetime(&naive) {
+        chrono::LocalResult::Single(dt) => dt,
+        chrono::LocalResult::Ambiguous(first, _) => first,
+        chrono::LocalResult::None => src
+            .from_local_datetime(&(naive + chrono::Duration::hours(1)))
+            .earliest()
+            .ok_or_else(|| AlarmCoreError::InvalidTimezone { name: source_tz.to_string() })?,
+    };
+
+    let local = (source_dt - chrono::Duration::minutes(lead_minutes as i64))
+        .with_timezone(&dev)
+        .naive_local();
+    Ok(EventLocalTime { date: local.date(), time_local: local.time() })
+}
+
+/// FFI: то же для вызова из Kotlin/RN (подсказка «10:00 (Екатеринбург) → 08:00»).
+#[uniffi::export]
+pub fn convert_event_time_ffi(
+    date: NaiveDate,
+    time: NaiveTime,
+    source_tz: String,
+    lead_minutes: u32,
+    device_tz: String,
+) -> Result<EventLocalTime, AlarmCoreError> {
+    convert_event_time(date, time, &source_tz, lead_minutes, &device_tz)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

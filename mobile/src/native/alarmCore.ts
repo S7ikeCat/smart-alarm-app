@@ -172,7 +172,26 @@ export type NativeExtraAlarm = {
   kind: ExtraAlarmKind;
   date: string | null; // только для ONE_DATE, "YYYY-MM-DD"
   enabled: boolean;
+  /** IANA-пояс события ("Asia/Yekaterinburg"): date/timeLocal тогда — время В ЭТОМ поясе. */
+  sourceTz?: string | null;
+  /** За сколько минут до события разбудить (только вместе с sourceTz). */
+  leadMinutes?: number;
 };
+
+export async function getDeviceTimeZone(): Promise<string> {
+  return AlarmCore.getDeviceTimeZone();
+}
+
+/** Время события в чужом поясе -> местные дата и время (за вычетом leadMinutes). */
+export async function convertEventTime(
+  date: string,
+  time: string,
+  sourceTz: string,
+  leadMinutes: number,
+): Promise<{ date: string; timeLocal: string }> {
+  const json: string = await AlarmCore.convertEventTimeJson(date, time, sourceTz, leadMinutes);
+  return JSON.parse(json);
+}
 
 export function saveExtraAlarm(alarm: NativeExtraAlarm): Promise<void> {
   return syncAfter(AlarmCore.saveExtraAlarmJson(JSON.stringify(alarm)));

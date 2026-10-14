@@ -344,6 +344,8 @@ fun saveExtraAlarmJson(alarmJson: String, promise: Promise) {
             kind = ExtraAlarmKind.valueOf(obj.getString("kind")),
             date = dateValue,
             enabled = obj.optBoolean("enabled", true),
+            sourceTz = if (obj.isNull("sourceTz")) null else obj.optString("sourceTz").ifBlank { null },
+            leadMinutes = obj.optInt("leadMinutes", 0).coerceAtLeast(0).toUInt(),
         )
         saveExtraAlarmFfi(dbPath(), alarm)
         promise.resolve(null)
@@ -364,6 +366,8 @@ fun loadExtraAlarmsJson(promise: Promise) {
             obj.put("kind", a.kind.name)
             obj.put("date", a.date ?: JSONObject.NULL)
             obj.put("enabled", a.enabled)
+            obj.put("sourceTz", a.sourceTz ?: JSONObject.NULL)
+            obj.put("leadMinutes", a.leadMinutes.toInt())
             array.put(obj)
         }
         promise.resolve(array.toString())
@@ -386,7 +390,7 @@ fun deleteExtraAlarm(alarmId: String, promise: Promise) {
 fun generateExtraAlarmsJson(horizonMonths: Double, promise: Promise) {
     try {
         val array = JSONArray()
-        for (i in generateExtraAlarmsFfi(dbPath(), horizonMonths.toUInt())) {
+        for (i in generateExtraAlarmsFfi(dbPath(), horizonMonths.toUInt(), java.util.TimeZone.getDefault().id)) {
             val obj = JSONObject()
             obj.put("alarmId", i.alarmId)
             obj.put("date", i.date)
@@ -397,6 +401,37 @@ fun generateExtraAlarmsJson(horizonMonths: Double, promise: Promise) {
         promise.resolve(array.toString())
     } catch (e: Exception) {
         promise.reject("GENERATE_EXTRA_ALARMS_ERROR", e.message, e)
+    }
+}
+
+// --- часовые пояса --------------------------------------------------------------
+
+/** IANA-имя часового пояса телефона, например "Europe/Moscow". */
+@ReactMethod
+fun getDeviceTimeZone(promise: Promise) {
+    promise.resolve(java.util.TimeZone.getDefault().id)
+}
+
+/**
+ * Переводит время события из часового пояса sourceTz в местное (за вычетом
+ * «разбудить за N минут»). Возвращает JSON {"date": "...", "timeLocal": "..."}.
+ */
+@ReactMethod
+fun convertEventTimeJson(date: String, time: String, sourceTz: String, leadMinutes: Double, promise: Promise) {
+    try {
+        val local = convertEventTimeFfi(
+            date,
+            time,
+            sourceTz,
+            leadMinutes.toInt().coerceAtLeast(0).toUInt(),
+            java.util.TimeZone.getDefault().id,
+        )
+        val obj = JSONObject()
+        obj.put("date", local.date)
+        obj.put("timeLocal", local.timeLocal)
+        promise.resolve(obj.toString())
+    } catch (e: Exception) {
+        promise.reject("CONVERT_EVENT_TIME_ERROR", e.message, e)
     }
 }
 

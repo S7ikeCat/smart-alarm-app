@@ -70,7 +70,7 @@ object AlarmSyncer {
             candidates.add(Candidate("event:${event.id}", event.label, at))
         }
 
-        for (extra in generateExtraAlarmsFfi(path, HORIZON_MONTHS.toUInt())) {
+        for (extra in generateExtraAlarmsFfi(path, HORIZON_MONTHS.toUInt(), java.util.TimeZone.getDefault().id)) {
             val at = toMillis(extra.date, extra.timeLocal)
             if (at <= now) continue
             candidates.add(
