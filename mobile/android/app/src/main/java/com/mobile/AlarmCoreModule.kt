@@ -1,5 +1,15 @@
 package com.mobile
 
+import android.app.Activity
+import android.content.Intent
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.OpenableColumns
+import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
@@ -11,7 +21,11 @@ import java.util.UUID
 import uniffi.alarm_core.*
 
 class AlarmCoreModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
+    ReactContextBaseJavaModule(reactContext), ActivityEventListener {
+
+    init {
+        reactContext.addActivityEventListener(this)
+    }
 
     override fun getName() = "AlarmCore"
 
@@ -437,8 +451,7 @@ fun deleteAlarmTimeOverride(scheduleId: String, date: String, ruleId: String, pr
 
     // --- Простые настройки приложения (ключ -> строка) --------------------------
 
-    private fun prefs() =
-        reactApplicationContext.getSharedPreferences("smart_alarm_settings", android.content.Context.MODE_PRIVATE)
+    private fun prefs() = AlarmSettings.prefs(reactApplicationContext)
 
     @ReactMethod
     fun getSetting(key: String, promise: Promise) {
@@ -467,5 +480,181 @@ fun deleteAlarmTimeOverride(scheduleId: String, date: String, ruleId: String, pr
         } catch (e: Exception) {
             promise.reject("REMOVE_SETTING_ERROR", e.message, e)
         }
+    }
+
+    // --- Выбор и прослушивание мелодии -------------------------------------------
+
+    private val REQUEST_PICK_RINGTONE = 7101
+    private val REQUEST_PICK_FILE = 7102
+    private var pickPromise: Promise? = null
+    private var previewPlayer: MediaPlayer? = null
+    private val previewHandler = Handler(Looper.getMainLooper())
+    private val previewStopper = Runnable { stopPreviewInternal() }
+
+    /** Системное окно выбора мелодии (со встроенным прослушиванием). */
+    @ReactMethod
+    fun pickSystemRingtone(currentUri: String, promise: Promise) {
+        val activity: Activity? = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "Нет активного экрана")
+            return
+        }
+        try {
+            pickPromise?.resolve(null)
+            pickPromise = promise
+            val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Мелодия будильника")
+                if (currentUri.isNotBlank()) {
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(currentUri))
+                }
+            }
+            activity.startActivityForResult(intent, REQUEST_PICK_RINGTONE)
+        } catch (e: Exception) {
+            pickPromise = null
+            promise.reject("PICK_RINGTONE_ERROR", e.message, e)
+        }
+    }
+
+    /** Выбор своего аудиофайла через системный файловый диалог (SAF). */
+    @ReactMethod
+    fun pickAudioFile(promise: Promise) {
+        val activity: Activity? = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "Нет активного экрана")
+            return
+        }
+        try {
+            pickPromise?.resolve(null)
+            pickPromise = promise
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "audio/*"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+            activity.startActivityForResult(intent, REQUEST_PICK_FILE)
+        } catch (e: Exception) {
+            pickPromise = null
+            promise.reject("PICK_FILE_ERROR", e.message, e)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != REQUEST_PICK_RINGTONE && requestCode != REQUEST_PICK_FILE) return
+        val promise = pickPromise ?: return
+        pickPromise = null
+        try {
+            if (resultCode != Activity.RESULT_OK || data == null) {
+                promise.resolve(null) // человек закрыл окно, ничего не выбрав
+                return
+            }
+            val uri: Uri? = if (requestCode == REQUEST_PICK_RINGTONE) {
+                data.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            } else {
+                data.data
+            }
+            if (uri == null) {
+                promise.resolve(null)
+                return
+            }
+            if (requestCode == REQUEST_PICK_FILE) {
+                // Чтобы файл оставался доступен после перезагрузки телефона.
+                try {
+                    reactApplicationContext.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                } catch (e: Exception) {
+                    AlarmJournal.log(reactApplicationContext, "не удалось закрепить доступ к файлу: ${e.message}")
+                }
+            }
+            val obj = JSONObject()
+            obj.put("uri", uri.toString())
+            obj.put("title", titleOf(uri))
+            promise.resolve(obj.toString())
+        } catch (e: Exception) {
+            promise.reject("PICK_RESULT_ERROR", e.message, e)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {}
+
+    private fun titleOf(uri: Uri): String {
+        try {
+            if (uri.scheme == "content") {
+                val cursor = reactApplicationContext.contentResolver.query(
+                    uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null,
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val name = it.getString(0)
+                        if (!name.isNullOrBlank()) return name
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // пойдём другим путём
+        }
+        try {
+            val ringtone = RingtoneManager.getRingtone(reactApplicationContext, uri)
+            val title = ringtone?.getTitle(reactApplicationContext)
+            if (!title.isNullOrBlank()) return title
+        } catch (e: Exception) {
+            // оставим запасное имя
+        }
+        return uri.lastPathSegment ?: "Мелодия"
+    }
+
+    /** Проигрывает мелодию (пустая строка — стандартная) не дольше 8 секунд. */
+    @ReactMethod
+    fun previewRingtone(uriString: String, promise: Promise) {
+        try {
+            stopPreviewInternal()
+            val uri = if (uriString.isBlank()) {
+                AlarmSettings.defaultAlarmUri(reactApplicationContext)
+            } else {
+                Uri.parse(uriString)
+            }
+            val player = MediaPlayer()
+            try {
+                player.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+                player.setDataSource(reactApplicationContext, uri)
+                player.isLooping = true
+                player.prepare()
+                player.start()
+            } catch (e: Exception) {
+                player.release()
+                throw e
+            }
+            previewPlayer = player
+            previewHandler.postDelayed(previewStopper, 8000)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("PREVIEW_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun stopPreview(promise: Promise) {
+        stopPreviewInternal()
+        promise.resolve(null)
+    }
+
+    private fun stopPreviewInternal() {
+        previewHandler.removeCallbacks(previewStopper)
+        try {
+            previewPlayer?.stop()
+        } catch (e: Exception) {
+            // уже остановлен
+        }
+        previewPlayer?.release()
+        previewPlayer = null
     }
 }

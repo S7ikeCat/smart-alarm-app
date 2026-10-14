@@ -48,6 +48,9 @@ class AlarmRingActivity : Activity() {
         )
 
         val label = intent.getStringExtra("label") ?: "Будильник"
+        // -1 = без лимита, 0 = откладывать больше нельзя, N = осталось N раз
+        val snoozesLeft = intent.getIntExtra("snoozesLeft", -1)
+        val snoozeMinutes = intent.getIntExtra("snoozeMinutes", 5)
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -76,14 +79,17 @@ class AlarmRingActivity : Activity() {
         }
 
         val snoozeButton = Button(this).apply {
-            text = "Отложить"
+            text = when {
+                snoozesLeft < 0 -> "Отложить на $snoozeMinutes мин"
+                else -> "Отложить на $snoozeMinutes мин (осталось $snoozesLeft)"
+            }
             setOnClickListener { sendCommand(AlarmService.ACTION_SNOOZE) }
         }
 
         layout.addView(timeText)
         layout.addView(labelText)
         layout.addView(stopButton)
-        layout.addView(snoozeButton)
+        if (snoozesLeft != 0) layout.addView(snoozeButton)
         setContentView(layout)
     }
 

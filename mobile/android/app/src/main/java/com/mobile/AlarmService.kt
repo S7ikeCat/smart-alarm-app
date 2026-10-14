@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -35,6 +36,7 @@ class AlarmService : Service() {
     private val autoStopRunnable = Runnable {
         dismissAlarm("автоостановка: никто не отреагировал за 10 минут")
     }
+    private var fadeRunnable: Runnable? = null
 
     companion object {
         const val ACTION_START = "com.mobile.ALARM_START"
@@ -47,7 +49,6 @@ class AlarmService : Service() {
 
         // Номер слота отложенного будильника — вне диапазона 0..19 синхронизации.
         private const val SNOOZE_REQUEST_CODE = 9999
-        private const val SNOOZE_MINUTES = 5
 
         // Страховка: если пользователь не отреагировал, не звоним бесконечно.
         private const val AUTO_STOP_MS = 10 * 60 * 1000L
@@ -61,8 +62,12 @@ class AlarmService : Service() {
         when (intent?.action) {
             ACTION_STOP -> dismissAlarm("выключен пользователем")
             ACTION_SNOOZE -> {
-                scheduleSnooze()
-                dismissAlarm("отложен")
+                if (AlarmSettings.snoozesLeft(this, alarmId) == 0) {
+                    AlarmJournal.log(this, "сервис: откладывать больше нельзя, лимит исчерпан")
+                } else {
+                    scheduleSnooze()
+                    dismissAlarm("отложен", clearSnoozeCount = false)
+                }
             }
             else -> startAlarm(intent)
         }
@@ -118,6 +123,8 @@ class AlarmService : Service() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("alarmId", alarmId)
             putExtra("label", alarmLabel)
+            putExtra("snoozesLeft", AlarmSettings.snoozesLeft(this@AlarmService, alarmId))
+            putExtra("snoozeMinutes", AlarmSettings.snoozeMinutes(this@AlarmService))
         }
         val activityPending = PendingIntent.getActivity(
             this, 0, activityIntent,
@@ -131,7 +138,7 @@ class AlarmService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(alarmLabel)
             .setContentText("Нажми, чтобы открыть")
@@ -142,29 +149,78 @@ class AlarmService : Service() {
             .setContentIntent(activityPending)
             .setFullScreenIntent(activityPending, true)
             .addAction(0, "Выключить", servicePending(ACTION_STOP, 1))
-            .addAction(0, "Отложить", servicePending(ACTION_SNOOZE, 2))
-            .build()
+
+        // Лимит снузов исчерпан — кнопку «Отложить» не показываем вовсе.
+        if (AlarmSettings.snoozesLeft(this, alarmId) != 0) {
+            builder.addAction(0, "Отложить", servicePending(ACTION_SNOOZE, 2))
+        }
+        return builder.build()
     }
 
     private fun startRinging() {
-        val alarmUri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val fadeSeconds = AlarmSettings.fadeInSeconds(this)
+        val chosen = AlarmSettings.ringtoneUriString(this)
+        var player: MediaPlayer? = null
 
-        mediaPlayer = MediaPlayer().apply {
-            setAudioAttributes(
+        // Сначала пробуем выбранную мелодию; если файл пропал или не читается —
+        // не остаёмся без звука, а играем системную.
+        if (chosen != null) {
+            try {
+                player = createPlayer(android.net.Uri.parse(chosen), fadeSeconds)
+            } catch (e: Exception) {
+                AlarmJournal.log(this, "ОШИБКА выбранной мелодии (${e.message}), играем стандартную")
+            }
+        }
+        val ready: MediaPlayer = player ?: createPlayer(AlarmSettings.defaultAlarmUri(this), fadeSeconds)
+        mediaPlayer = ready
+        ready.start()
+        startFadeIn(fadeSeconds)
+    }
+
+    private fun createPlayer(uri: android.net.Uri, fadeSeconds: Int): MediaPlayer {
+        val player = MediaPlayer()
+        try {
+            player.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ALARM)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build(),
             )
-            setDataSource(this@AlarmService, alarmUri)
-            isLooping = true
-            prepare()
-            start()
+            player.setDataSource(this, uri)
+            player.isLooping = true
+            if (fadeSeconds > 0) player.setVolume(0f, 0f)
+            player.prepare()
+            return player
+        } catch (e: Exception) {
+            player.release()
+            throw e
         }
     }
 
+    /** Плавно поднимает громкость от нуля до полной за fadeSeconds. */
+    private fun startFadeIn(fadeSeconds: Int) {
+        if (fadeSeconds <= 0) return
+        val startedAt = SystemClock.elapsedRealtime()
+        val runnable = object : Runnable {
+            override fun run() {
+                val player = mediaPlayer ?: return
+                val progress = ((SystemClock.elapsedRealtime() - startedAt) / (fadeSeconds * 1000f))
+                    .coerceIn(0f, 1f)
+                val volume = progress * progress // тихий старт, потом быстрее
+                try {
+                    player.setVolume(volume, volume)
+                } catch (e: Exception) {
+                    return
+                }
+                if (progress < 1f) handler.postDelayed(this, 150)
+            }
+        }
+        fadeRunnable = runnable
+        handler.post(runnable)
+    }
+
     private fun startVibrating() {
+        if (!AlarmSettings.vibrationEnabled(this)) return
         val pattern = longArrayOf(0, 500, 500)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -177,6 +233,8 @@ class AlarmService : Service() {
     }
 
     private fun stopRingingAndVibrating() {
+        fadeRunnable?.let { handler.removeCallbacks(it) }
+        fadeRunnable = null
         mediaPlayer?.stop()
         mediaPlayer?.release()
         mediaPlayer = null
@@ -188,11 +246,12 @@ class AlarmService : Service() {
         }
     }
 
-    /** Ставит тот же будильник заново через SNOOZE_MINUTES. */
+    /** Ставит тот же будильник заново через выбранное в настройках число минут. */
     private fun scheduleSnooze() {
         try {
+            val minutes = AlarmSettings.snoozeMinutes(this)
             val alarmManager = getSystemService(AlarmManager::class.java)
-            val triggerAt = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
+            val triggerAt = System.currentTimeMillis() + minutes * 60_000L
             val snoozeIntent = Intent(this, AlarmReceiver::class.java).apply {
                 putExtra("alarmId", alarmId)
                 putExtra("label", alarmLabel)
@@ -207,15 +266,19 @@ class AlarmService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), pendingIntent)
-            AlarmJournal.log(this, "сервис: отложено на $SNOOZE_MINUTES мин, снова в ${timeFormat.format(Date(triggerAt))}")
+            val used = AlarmSettings.snoozeCountFor(this, alarmId) + 1
+            AlarmSettings.saveSnoozeCount(this, alarmId, used)
+            AlarmJournal.log(this, "сервис: отложено на $minutes мин (снуз №$used), снова в ${timeFormat.format(Date(triggerAt))}")
         } catch (e: Exception) {
             AlarmJournal.log(this, "ОШИБКА откладывания: ${e.message}")
         }
     }
 
     /** Гасит звонок, убирает уведомление, просит закрыться открытый экран. */
-    private fun dismissAlarm(reason: String) {
+    private fun dismissAlarm(reason: String, clearSnoozeCount: Boolean = true) {
         AlarmJournal.log(this, "сервис: звонок завершён — $reason")
+        // Выключили совсем — следующий раз счёт снузов начнётся с нуля.
+        if (clearSnoozeCount) AlarmSettings.clearSnoozeCount(this)
         handler.removeCallbacks(autoStopRunnable)
         stopRingingAndVibrating()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -225,6 +288,7 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(autoStopRunnable)
+        fadeRunnable?.let { handler.removeCallbacks(it) }
         mediaPlayer?.release()
         super.onDestroy()
     }

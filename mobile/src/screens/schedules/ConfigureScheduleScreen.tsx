@@ -273,16 +273,20 @@ export function ConfigureScheduleScreen() {
     const todayDate = startOfDay(new Date());
   
     if (existingSchedule) {
-      // Берём разницу в днях между сохранённой датой и сегодня БЕЗ
-      // приведения по модулю длины цикла — раньше модуль сворачивал любой
-      // сдвиг в диапазон [0, length-1], из-за чего при повторном открытии
-      // экран показывал ДРУГУЮ (хоть и эквивалентную по фазе) дату вместо
-      // той, что реально выбирал пользователь — выглядело как "сброс".
+      // Сохранённая дата старта может быть давно в прошлом (график идёт месяцами),
+      // а стрелки степпера работают только рядом с сегодняшним днём. Поэтому
+      // показываем ближайшее начало цикла, которое не позже сегодня: фаза
+      // графика та же самая, но дата «привязана» к сегодняшнему числу, и
+      // стрелки влево/вправо двигают её от него. Сами даты (паузы, правки
+      // дней, времена) от этого не зависят — считается только фаза цикла.
       const [year, month, day] = existingSchedule.startDate.split('-').map(Number);
       const storedDate = new Date(year, month - 1, day);
-      return Math.round((storedDate.getTime() - todayDate.getTime()) / 86400000);
+      const daysSinceStored = Math.round((todayDate.getTime() - storedDate.getTime()) / 86400000);
+      const length = pattern.length;
+      const daysIntoCycle = ((daysSinceStored % length) + length) % length;
+      return -daysIntoCycle;
     }
-  
+
     const todayWeekday = (todayDate.getDay() + 6) % 7; // Пн=0 ... Вс=6
     const daysUntilMonday = (7 - todayWeekday) % 7;
     return daysUntilMonday % pattern.length;

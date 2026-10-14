@@ -39,7 +39,7 @@ export function chunkIntoWeeks(cells: GridCell[]): GridCell[][] {
 /**
  * Строит сетку месяца с ISO-неделями (Пн...Вс). Дополняет ведущие и
  * замыкающие ячейки днями соседних месяцев (приглушённые, некликабельные),
- * чтобы сетка всегда была ровной — без пустых "дыр".
+ * чтобы сетка всегда была ровной — без пустых "дыр" и всегда 6 строк.
  */
 export function buildMonthGrid(monthDate: Date): GridCell[] {
   const year = monthDate.getFullYear();
@@ -61,7 +61,9 @@ export function buildMonthGrid(monthDate: Date): GridCell[] {
     grid.push({ date: new Date(year, month, d), inCurrentMonth: true });
   }
 
-  while (grid.length % 7 !== 0) {
+  // Всегда ровно 6 недель (42 ячейки): у разных месяцев строк бывает 4, 5 или 6,
+  // и без выравнивания всё, что ниже сетки, прыгало при переключении месяца.
+  while (grid.length < 42) {
     const lastDate = grid[grid.length - 1].date;
     grid.push({ date: addDays(lastDate, 1), inCurrentMonth: false });
   }
