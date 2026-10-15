@@ -1,52 +1,51 @@
-import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing } from '../theme/spacing';
 import { TimeStepper } from './TimeStepper';
+import { SelectRow } from './SelectRow';
+import { TzCard } from './TzCard';
+import { FormActions } from './FormActions';
 import {
   ExtraAlarmKind,
   NativeExtraAlarm,
   saveExtraAlarm,
   deleteExtraAlarm,
-  convertEventTime,
 } from '../native/alarmCore';
-import { CITY_ZONES, cityName, searchCities } from '../utils/timezones';
+import { CITY_ZONES } from '../utils/timezones';
 import {
   KIND_LABELS,
   addDaysToKey,
   dateToKey,
   formatKeyLong,
   newId,
-  shortTime,
-  keyToDate,
 } from '../utils/timeUtils';
 
 
 const KINDS: ExtraAlarmKind[] = ['WORK_DAYS', 'REST_DAYS', 'ALL_DAYS', 'ONE_DATE'];
 
-/** Выбор "когда звонит" — четыре кнопки-чипа. */
+/** Выбор "когда звонит": строка, по нажатию — окошко со списком вариантов. */
 export function KindPicker({
   value,
   onChange,
+  tone = 'background',
 }: {
   value: ExtraAlarmKind;
   onChange: (kind: ExtraAlarmKind) => void;
+  tone?: 'surface' | 'background';
 }) {
   return (
-    <View style={styles.chips}>
-      {KINDS.map(kind => (
-        <Pressable
-          key={kind}
-          style={[styles.chip, value === kind && styles.chipActive]}
-          onPress={() => onChange(kind)}
-        >
-          <Text style={[styles.chipText, value === kind && styles.chipTextActive]}>
-            {KIND_LABELS[kind]}
-          </Text>
-        </Pressable>
-      ))}
+    <View style={{ marginBottom: tone === 'surface' ? 0 : spacing.md }}>
+      <SelectRow
+        title="Когда звонит"
+        tone={tone}
+        variant="dialog"
+        value={value}
+        onChange={onChange}
+        options={KINDS.map(k => ({ value: k, label: KIND_LABELS[k] }))}
+      />
     </View>
   );
 }
@@ -55,23 +54,26 @@ export function KindPicker({
 export function DateStepper({
   value,
   onChange,
+  inGroup = false,
 }: {
   value: string; // "YYYY-MM-DD"
   onChange: (value: string) => void;
+  inGroup?: boolean;
 }) {
+  const btn = [styles.dateBtn, inGroup && { backgroundColor: colors.surface }];
   return (
-    <View style={styles.dateRow}>
-      <Pressable style={styles.dateBtn} onPress={() => onChange(addDaysToKey(value, -7))}>
+    <View style={[styles.dateRow, inGroup && { marginBottom: 0 }]}>
+      <Pressable style={btn} onPress={() => onChange(addDaysToKey(value, -7))}>
         <Text style={styles.dateBtnText}>−7</Text>
       </Pressable>
-      <Pressable style={styles.dateBtn} onPress={() => onChange(addDaysToKey(value, -1))}>
+      <Pressable style={btn} onPress={() => onChange(addDaysToKey(value, -1))}>
         <ChevronLeft color={colors.textPrimary} size={20} />
       </Pressable>
       <Text style={styles.dateText}>{formatKeyLong(value)}</Text>
-      <Pressable style={styles.dateBtn} onPress={() => onChange(addDaysToKey(value, 1))}>
+      <Pressable style={btn} onPress={() => onChange(addDaysToKey(value, 1))}>
         <ChevronRight color={colors.textPrimary} size={20} />
       </Pressable>
-      <Pressable style={styles.dateBtn} onPress={() => onChange(addDaysToKey(value, 7))}>
+      <Pressable style={btn} onPress={() => onChange(addDaysToKey(value, 7))}>
         <Text style={styles.dateBtnText}>+7</Text>
       </Pressable>
     </View>
@@ -96,33 +98,8 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
   const [busy, setBusy] = useState(false);
   const [tzOn, setTzOn] = useState(!!alarm?.sourceTz);
   const [tz, setTz] = useState(alarm?.sourceTz ?? CITY_ZONES[3].tz);
-  const [query, setQuery] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [preview, setPreview] = useState<{ date: string; timeLocal: string } | null>(null);
 
-  const effectiveKind: ExtraAlarmKind = tzOn ? 'ONE_DATE' : kind;
-
-  useEffect(() => {
-    if (!tzOn) {
-      setPreview(null);
-      return;
-    }
-    let cancelled = false;
-    convertEventTime(date, time, tz, 0)
-      .then(r => !cancelled && setPreview(r))
-      .catch(() => !cancelled && setPreview(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [tzOn, date, time, tz]);
-
-  function dayWord(localDate: string): string {
-    const diff = Math.round(
-      (keyToDate(localDate).getTime() - keyToDate(date).getTime()) / 86400000,
-    );
-    if (diff === 0) return '';
-    return diff < 0 ? ' (днём раньше)' : ' (днём позже)';
-  }
+  const effectiveKind: ExtraAlarmKind = kind;
 
   async function handleSave() {
     setBusy(true);
@@ -169,7 +146,6 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
         </Text>
       )}
 
-      {tzOn && <Text style={styles.fixedHint}>Время события в: {cityName(tz)}</Text>}
       <TimeStepper value={time} onChange={setTime} />
 
       <TextInput
@@ -181,81 +157,25 @@ export function ExtraAlarmForm({ alarm, fixedDate, onDone, onCancel }: Props) {
         maxLength={40}
       />
 
-      {(!fixedDate || !alarm || alarm.kind === 'ONE_DATE') && (
-        <View style={styles.tzBlock}>
-          <View style={styles.tzRow}>
-            <Text style={styles.tzTitle}>Время в другом часовом поясе</Text>
-            <Switch
-              value={tzOn}
-              onValueChange={v => {
-                setTzOn(v);
-                if (v) setKind('ONE_DATE');
-              }}
-              trackColor={{ false: colors.border, true: colors.accent }}
-            />
-          </View>
-          {tzOn && (
-            <>
-              <Pressable style={styles.cityBtn} onPress={() => setPickerOpen(o => !o)}>
-                <Text style={styles.cityBtnText}>{cityName(tz)}</Text>
-                <Text style={styles.cityBtnHint}>{pickerOpen ? 'скрыть' : 'сменить'}</Text>
-              </Pressable>
-              {pickerOpen && (
-                <>
-                  <TextInput
-                    style={styles.input}
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Поиск города"
-                    placeholderTextColor={colors.textSecondary}
-                  />
-                  <ScrollView style={styles.cityList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                    {searchCities(query).map(c => (
-                      <Pressable
-                        key={c.tz}
-                        style={[styles.cityItem, c.tz === tz && styles.cityItemActive]}
-                        onPress={() => {
-                          setTz(c.tz);
-                          setPickerOpen(false);
-                          setQuery('');
-                        }}
-                      >
-                        <Text style={styles.cityItemText}>{c.ru}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </>
-              )}
-              {preview && (
-                <Text style={styles.tzPreview}>
-                  {shortTime(time)} ({cityName(tz)}) → сработает в {shortTime(preview.timeLocal)} по твоему времени
-                  {dayWord(preview.date)}
-                </Text>
-              )}
-            </>
-          )}
+      {!fixedDate && (
+        <View style={styles.group}>
+          <KindPicker value={kind} onChange={setKind} tone="surface" />
+          {effectiveKind === 'ONE_DATE' && <DateStepper value={date} onChange={setDate} inGroup />}
         </View>
       )}
 
-      {!fixedDate && (
-        <>
-          <Text style={styles.sectionLabel}>Когда звонит</Text>
-          {!tzOn && <KindPicker value={kind} onChange={setKind} />}
-          {effectiveKind === 'ONE_DATE' && <DateStepper value={date} onChange={setDate} />}
-        </>
+      {(!fixedDate || !alarm || alarm.kind === 'ONE_DATE') && (
+        <TzCard
+          on={tzOn}
+          onToggle={setTzOn}
+          tz={tz}
+          onTz={setTz}
+          time={time}
+          date={effectiveKind === 'ONE_DATE' ? date : dateToKey(new Date())}
+        />
       )}
 
-      <Pressable style={[styles.primary, busy && styles.disabled]} onPress={handleSave} disabled={busy}>
-        <Text style={styles.primaryText}>Сохранить</Text>
-      </Pressable>
-      {alarm && (
-        <Pressable style={styles.dangerOutline} onPress={handleDelete} disabled={busy}>
-          <Text style={styles.dangerText}>Удалить</Text>
-        </Pressable>
-      )}
-      <Pressable style={styles.secondary} onPress={onCancel} disabled={busy}>
-        <Text style={styles.secondaryText}>Отмена</Text>
-      </Pressable>
+      <FormActions onSave={handleSave} onCancel={onCancel} onDelete={alarm ? handleDelete : undefined} busy={busy} />
     </View>
   );
 }
@@ -302,8 +222,32 @@ const styles = StyleSheet.create({
   },
   dateBtnText: { ...typography.caption, color: colors.textPrimary },
   dateText: { ...typography.body, color: colors.textPrimary, flex: 1, textAlign: 'center' },
-  tzBlock: { marginBottom: spacing.sm },
-  tzRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  group: {
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  lockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    opacity: 0.7,
+  },
+  lockedTitle: { ...typography.body, color: colors.textPrimary },
+  lockedValue: { ...typography.body, color: colors.textSecondary },
+  note: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  previewBox: {
+    backgroundColor: 'rgba(232,135,90,0.12)',
+    borderRadius: 12,
+    padding: spacing.md,
+  },
+  tzRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   tzTitle: { ...typography.body, color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
   cityBtn: {
     flexDirection: 'row',
@@ -320,7 +264,7 @@ const styles = StyleSheet.create({
   cityItem: { paddingVertical: 10, paddingHorizontal: spacing.md, borderRadius: 10 },
   cityItemActive: { backgroundColor: colors.background },
   cityItemText: { ...typography.body, color: colors.textPrimary },
-  tzPreview: { ...typography.caption, color: colors.accent, marginBottom: spacing.md },
+  tzPreview: { ...typography.body, color: colors.accent },
   primary: {
     backgroundColor: colors.accent,
     borderRadius: 12,

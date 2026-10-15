@@ -19,7 +19,8 @@ object AlarmSettings {
     const val KEY_VIBRATION = "vibration"
     const val KEY_RINGTONE_URI = "ringtone_uri"
     const val KEY_RINGTONE_TITLE = "ringtone_title"
-    const val KEY_SHAKE_DISMISS = "shake_dismiss"
+    const val KEY_SHAKE_DISMISS = "shake_dismiss" // старый ключ: включено/выключено
+    const val KEY_SHAKE_MODE = "shake_mode" // 0 выкл, 1 выключает, 2 откладывает
 
     // Служебные ключи счётчика снузов (не настройки пользователя).
     private const val KEY_SNOOZE_ALARM_ID = "_snooze_alarm_id"
@@ -47,13 +48,16 @@ object AlarmSettings {
     }
 
     /**
-     * Выключение встряской: включено в настройках И на телефоне есть акселерометр
-     * (иначе человек не смог бы выключить будильник вообще).
+     * Что делает встряска: 0 — ничего, 1 — выключает будильник, 2 — откладывает.
+     * Если на телефоне нет акселерометра, всегда 0 (иначе не выключить вообще).
      */
-    fun shakeRequired(context: Context): Boolean {
-        if (prefs(context).getString(KEY_SHAKE_DISMISS, null) != "1") return false
+    fun shakeMode(context: Context): Int {
+        val p = prefs(context)
+        val raw = p.getString(KEY_SHAKE_MODE, null)?.toIntOrNull()
+            ?: if (p.getString(KEY_SHAKE_DISMISS, null) == "1") 1 else 0
+        if (raw != 1 && raw != 2) return 0
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
-        return sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) != null
+        return if (sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) != null) raw else 0
     }
 
     fun vibrationEnabled(context: Context): Boolean =

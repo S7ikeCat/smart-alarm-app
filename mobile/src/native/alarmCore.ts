@@ -117,6 +117,9 @@ export async function loadDayOverrides(scheduleId: string): Promise<NativeDayOve
   return JSON.parse(json);
 }
 
+export type ReminderRepeat = 'ONCE' | 'DAILY' | 'WEEKDAYS' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+
+/** Событие = напоминание. Поля после reminderEnabled необязательны только для старого кода. */
 export type NativeCustomEvent = {
   id: string;
   date: string; // "YYYY-MM-DD"
@@ -125,7 +128,36 @@ export type NativeCustomEvent = {
   label: string;
   description: string;
   reminderEnabled: boolean;
+  urgent?: boolean; // срочное: звонит будильником; иначе — обычное уведомление
+  flagged?: boolean; // флажок для фильтра «С флажком»
+  completed?: boolean; // выполнено (лежит в «Завершено»)
+  repeat?: ReminderRepeat;
+  listId?: string | null; // список напоминаний
 };
+
+export type NativeReminderList = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+export async function loadReminderLists(): Promise<NativeReminderList[]> {
+  const json: string = await AlarmCore.loadReminderListsJson();
+  return JSON.parse(json);
+}
+
+export function saveReminderList(list: NativeReminderList): Promise<void> {
+  return AlarmCore.saveReminderListJson(JSON.stringify(list));
+}
+
+export function deleteReminderList(listId: string): Promise<void> {
+  return AlarmCore.deleteReminderList(listId);
+}
+
+/** Отметить выполненным: разовое уходит в «Завершено», повторяющееся — на следующую дату. */
+export function completeReminder(eventId: string, doneDate: string): Promise<void> {
+  return syncAfter(AlarmCore.completeReminder(eventId, doneDate));
+}
 
 export function saveCustomEvent(event: NativeCustomEvent): Promise<void> {
   return syncAfter(AlarmCore.saveCustomEventJson(JSON.stringify(event)));

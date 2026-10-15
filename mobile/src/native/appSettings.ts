@@ -54,7 +54,8 @@ export type RingSettings = {
   vibration: boolean;
   ringtoneUri: string | null; // null = стандартный системный будильник
   ringtoneTitle: string;
-  shakeDismiss: boolean; // выключать будильник только встряской
+  shakeMode: 0 | 1 | 2; // 0 — выкл, 1 — встряска выключает, 2 — встряска откладывает
+  shakeAction: 1 | 2; // что делает встряска, когда включена (помним и при выключенной)
 };
 
 export const RING_DEFAULTS: RingSettings = {
@@ -64,7 +65,8 @@ export const RING_DEFAULTS: RingSettings = {
   vibration: true,
   ringtoneUri: null,
   ringtoneTitle: 'Стандартная',
-  shakeDismiss: false,
+  shakeMode: 0,
+  shakeAction: 1,
 };
 
 function toInt(value: string | null, fallback: number): number {
@@ -74,14 +76,16 @@ function toInt(value: string | null, fallback: number): number {
 
 export async function loadRingSettings(): Promise<RingSettings> {
   try {
-    const [snooze, limit, fade, vibration, uri, title, shake] = await Promise.all([
+    const [snooze, limit, fade, vibration, uri, title, shakeNew, shakeOld, shakeAct] = await Promise.all([
       getSetting('snooze_minutes'),
       getSetting('snooze_limit'),
       getSetting('fade_in_seconds'),
       getSetting('vibration'),
       getSetting('ringtone_uri'),
       getSetting('ringtone_title'),
+      getSetting('shake_mode'),
       getSetting('shake_dismiss'),
+      getSetting('shake_action'),
     ]);
     const hasUri = uri !== null && uri.trim().length > 0;
     return {
@@ -91,7 +95,8 @@ export async function loadRingSettings(): Promise<RingSettings> {
       vibration: vibration !== '0',
       ringtoneUri: hasUri ? uri : null,
       ringtoneTitle: hasUri && title ? title : RING_DEFAULTS.ringtoneTitle,
-      shakeDismiss: shake === '1',
+      shakeAction: shakeAct === '2' ? 2 : shakeAct === '1' ? 1 : shakeNew === '2' ? 2 : 1,
+      shakeMode: shakeNew === '1' || shakeNew === '2' ? (Number(shakeNew) as 1 | 2) : shakeNew === null && shakeOld === '1' ? 1 : 0,
     };
   } catch {
     return RING_DEFAULTS;
@@ -111,8 +116,11 @@ export function saveVibration(value: boolean) {
   return setSetting('vibration', value ? '1' : '0');
 }
 
-export function saveShakeDismiss(value: boolean) {
-  return setSetting('shake_dismiss', value ? '1' : '0');
+export function saveShakeAction(value: 1 | 2) {
+  return setSetting('shake_action', String(value));
+}
+export function saveShakeMode(value: 0 | 1 | 2) {
+  return setSetting('shake_mode', String(value));
 }
 
 export type PickedRingtone = { uri: string; title: string };

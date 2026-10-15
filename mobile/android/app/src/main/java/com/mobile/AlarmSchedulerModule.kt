@@ -228,6 +228,25 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
         )
     }
 
+    @ReactMethod
+    fun hasOverlayPermission(promise: Promise) {
+        promise.resolve(android.provider.Settings.canDrawOverlays(reactApplicationContext))
+    }
+
+    @ReactMethod
+    fun requestOverlayPermission(promise: Promise) {
+        try {
+            val intent = Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:" + reactApplicationContext.packageName),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("OVERLAY_ERROR", e.message, e)
+        }
+    }
+
     /** Показывает экран звонка без звука и без будильника — для подгонки внешнего вида. */
     @ReactMethod
     fun showRingPreview(promise: Promise) {

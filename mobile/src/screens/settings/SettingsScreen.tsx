@@ -11,6 +11,8 @@ import {
   Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { SelectRow } from '../../components/SelectRow';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Sofa, RotateCcw, Play, Square, Music, FolderOpen } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -27,7 +29,8 @@ import {
   saveSnoozeLimit,
   saveFadeInSeconds,
   saveVibration,
-  saveShakeDismiss,
+  saveShakeMode,
+  saveShakeAction,
   pickSystemRingtone,
   pickAudioFile,
   saveRingtone,
@@ -37,63 +40,40 @@ import {
 } from '../../native/appSettings';
 
 // Метка версии JS-кода: по ней видно, какая сборка реально стоит на телефоне.
-const JS_BUILD = '14.10 · 13:25';
+const JS_BUILD = '15.10 · 22:50';
 
 const SNOOZE_MINUTES_OPTIONS = [1, 3, 5, 10, 15];
 const SNOOZE_LIMIT_OPTIONS = [1, 2, 3, 5, 0]; // 0 = без лимита
+const SHAKE_ACTIONS: (1 | 2)[] = [1, 2];
 const FADE_OPTIONS = [0, 5, 10, 20, 30];
 
-/** Ряд кнопок-вариантов: выбранная подсвечена. */
-function ChipRow<T extends number>({
+/** Выбор числа из списка: строка «значение ›», по нажатию — шторка. */
+function NumberSelect<T extends number>({
+  title,
   options,
   value,
   label,
   onSelect,
 }: {
+  title: string;
   options: T[];
   value: T;
   label: (option: T) => string;
   onSelect: (option: T) => void;
 }) {
   return (
-    <View style={chipStyles.row}>
-      {options.map(option => {
-        const selected = option === value;
-        return (
-          <Pressable
-            key={option}
-            style={[chipStyles.chip, selected && chipStyles.chipSelected]}
-            onPress={() => onSelect(option)}
-          >
-            <Text style={[chipStyles.chipText, selected && chipStyles.chipTextSelected]}>
-              {label(option)}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
+    <SelectRow
+      title={title}
+      tone="background"
+      value={value}
+      onChange={onSelect}
+      options={options.map(o => ({ value: o, label: label(o) }))}
+    />
   );
 }
 
-const chipStyles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    minWidth: 52,
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipSelected: { borderColor: colors.accent, backgroundColor: colors.accent },
-  chipText: { ...typography.body, color: colors.textPrimary },
-  chipTextSelected: { color: colors.background, fontWeight: '600' },
-});
-
 export function SettingsScreen() {
+  const insets = useSafeAreaInsets();
   const [restTitle, setRestTitle] = useState(REST_TITLE_DEFAULT);
   const [savedTitle, setSavedTitle] = useState(REST_TITLE_DEFAULT);
   const [isSaving, setIsSaving] = useState(false);
@@ -202,7 +182,7 @@ export function SettingsScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.title}>Настройки</Text>
@@ -264,36 +244,37 @@ export function SettingsScreen() {
             {ring.ringtoneTitle}
           </Text>
         </View>
-        <View style={styles.buttonRow}>
-          <Pressable style={styles.smallOutline} onPress={handleTogglePreview}>
+        <View style={styles.iconRow}>
+          <Pressable
+            style={[styles.iconBtn, styles.iconBtnMain]}
+            onPress={handleTogglePreview}
+            accessibilityLabel={isPreviewing ? 'Стоп' : 'Прослушать'}
+          >
             {isPreviewing ? (
-              <Square color={colors.accent} size={16} />
+              <Square color={colors.background} size={20} fill={colors.background} />
             ) : (
-              <Play color={colors.accent} size={16} />
+              <Play color={colors.background} size={22} fill={colors.background} />
             )}
-            <Text style={styles.smallOutlineText}>{isPreviewing ? 'Стоп' : 'Прослушать'}</Text>
           </Pressable>
-          <Pressable style={styles.smallOutline} onPress={handlePickSystem}>
-            <Music color={colors.accent} size={16} />
-            <Text style={styles.smallOutlineText}>Из системных</Text>
+          <Pressable style={styles.iconBtn} onPress={handlePickSystem} accessibilityLabel="Из системных">
+            <Music color={colors.accent} size={22} />
           </Pressable>
-          <Pressable style={styles.smallOutline} onPress={handlePickFile}>
-            <FolderOpen color={colors.accent} size={16} />
-            <Text style={styles.smallOutlineText}>Свой файл</Text>
+          <Pressable style={styles.iconBtn} onPress={handlePickFile} accessibilityLabel="Свой файл">
+            <FolderOpen color={colors.accent} size={22} />
           </Pressable>
+          {ring.ringtoneUri !== null && (
+            <Pressable style={styles.iconBtn} onPress={() => applyRingtone(null)} accessibilityLabel="Стандартная">
+              <RotateCcw color={colors.textSecondary} size={20} />
+            </Pressable>
+          )}
         </View>
-        {ring.ringtoneUri !== null && (
-          <Pressable style={styles.resetLink} onPress={() => applyRingtone(null)}>
-            <RotateCcw color={colors.textSecondary} size={14} />
-            <Text style={styles.resetLinkText}>Вернуть стандартную</Text>
-          </Pressable>
-        )}
       </View>
 
       <View style={[styles.card, styles.cardGap]}>
         <Text style={styles.cardTitle}>Плавное нарастание громкости</Text>
         <Text style={styles.cardHint}>Звук начинается тихо и доходит до полной громкости за выбранное время.</Text>
-        <ChipRow
+        <NumberSelect
+          title="Время нарастания"
           options={FADE_OPTIONS}
           value={ring.fadeInSeconds}
           label={o => (o === 0 ? 'Выкл' : `${o} с`)}
@@ -304,7 +285,8 @@ export function SettingsScreen() {
       <View style={[styles.card, styles.cardGap]}>
         <Text style={styles.cardTitle}>Отложить</Text>
         <Text style={styles.cardHint}>Через сколько минут будильник прозвонит снова.</Text>
-        <ChipRow
+        <NumberSelect
+          title="Через сколько минут"
           options={SNOOZE_MINUTES_OPTIONS}
           value={ring.snoozeMinutes}
           label={o => `${o} мин`}
@@ -313,7 +295,8 @@ export function SettingsScreen() {
         <Text style={[styles.cardHint, styles.hintGap]}>
           Сколько раз можно отложить, чтобы не проспать насовсем.
         </Text>
-        <ChipRow
+        <NumberSelect
+          title="Сколько раз откладывать"
           options={SNOOZE_LIMIT_OPTIONS}
           value={ring.snoozeLimit}
           label={o => (o === 0 ? 'Без лимита' : `${o}`)}
@@ -337,18 +320,37 @@ export function SettingsScreen() {
       <View style={[styles.card, styles.cardGap]}>
         <View style={styles.switchCard}>
           <View style={styles.switchText}>
-            <Text style={styles.cardTitle}>Выключать встряской</Text>
-            <Text style={styles.cardHintTight}>
-              Чтобы выключить будильник, один раз встряхни телефон. Отложить можно как обычно.
-            </Text>
+            <Text style={styles.cardTitle}>Встряска</Text>
+            <Text style={styles.cardHintTight}>Управлять будильником, встряхнув телефон.</Text>
           </View>
           <Switch
-            value={ring.shakeDismiss}
-            onValueChange={v => change('shakeDismiss', v, () => saveShakeDismiss(v))}
+            value={ring.shakeMode !== 0}
+            onValueChange={v => {
+              const mode = v ? ring.shakeAction : 0;
+              change('shakeMode', mode, () => saveShakeMode(mode));
+            }}
             trackColor={{ false: colors.border, true: colors.accent }}
             thumbColor={colors.textPrimary}
           />
         </View>
+        {ring.shakeMode !== 0 && (
+          <>
+            <Text style={[styles.cardHint, styles.hintGap]}>Что делает встряска.</Text>
+            <NumberSelect
+              title="Действие"
+              options={SHAKE_ACTIONS}
+              value={ring.shakeAction}
+              label={o => (o === 1 ? 'Выключать' : 'Откладывать')}
+              onSelect={o => {
+                setRing(prev => ({ ...prev, shakeAction: o }));
+                change('shakeMode', o, async () => {
+                  await saveShakeAction(o);
+                  await saveShakeMode(o);
+                });
+              }}
+            />
+          </>
+        )}
       </View>
 
       <Text style={styles.buildStamp}>Сборка интерфейса: {JS_BUILD}</Text>
@@ -412,6 +414,16 @@ const styles = StyleSheet.create({
   cardHintTight: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   melodyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md, marginBottom: spacing.md },
   melodyTitle: { ...typography.body, color: colors.textPrimary, flex: 1 },
+  iconRow: { flexDirection: 'row', gap: spacing.md },
+  iconBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBtnMain: { backgroundColor: colors.accent },
   buttonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   smallOutline: {
     flexDirection: 'row',

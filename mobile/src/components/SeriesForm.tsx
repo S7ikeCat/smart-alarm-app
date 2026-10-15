@@ -5,7 +5,11 @@ import { typography } from '../theme/typography';
 import { spacing } from '../theme/spacing';
 import { TimeStepper } from './TimeStepper';
 import { KindPicker, DateStepper } from './ExtraAlarmForm';
+import { TzCard } from './TzCard';
+import { FormActions } from './FormActions';
+import { CITY_ZONES } from '../utils/timezones';
 import { ExtraAlarmKind, saveExtraAlarm } from '../native/alarmCore';
+import { loadSeries, saveSeriesList } from '../native/alarmSeries';
 import { addMinutesToTime, dateToKey, newId, shortTime } from '../utils/timeUtils';
 
 function NumberStepper({
@@ -55,22 +59,31 @@ export function SeriesForm({ onDone, onCancel }: Props) {
   const [kind, setKind] = useState<ExtraAlarmKind>('ALL_DAYS');
   const [date, setDate] = useState(dateToKey(new Date()));
   const [busy, setBusy] = useState(false);
+  const [tzOn, setTzOn] = useState(false);
+  const [tz, setTz] = useState(CITY_ZONES[3].tz);
 
   const times = Array.from({ length: count }, (_, i) => addMinutesToTime(start, i * step));
 
   async function handleCreate() {
     setBusy(true);
     try {
+      const ids: string[] = [];
       for (let i = 0; i < times.length; i++) {
+        const id = newId();
+        ids.push(id);
         await saveExtraAlarm({
-          id: newId(),
+          id,
           label: `${label.trim() || 'Подъём'} ${i + 1}`,
           timeLocal: times[i],
           kind,
           date: kind === 'ONE_DATE' ? date : null,
           enabled: true,
+          sourceTz: tzOn ? tz : null,
+          leadMinutes: 0,
         });
       }
+      const existing = await loadSeries();
+      await saveSeriesList([...existing, { id: newId(), name: label.trim() || 'Подъём', alarmIds: ids }]);
       onDone();
     } catch (error) {
       Alert.alert('Не удалось создать серию', String(error));
@@ -100,16 +113,19 @@ export function SeriesForm({ onDone, onCancel }: Props) {
         maxLength={30}
       />
 
-      <Text style={styles.sectionLabel}>Когда звонит</Text>
       <KindPicker value={kind} onChange={setKind} />
       {kind === 'ONE_DATE' && <DateStepper value={date} onChange={setDate} />}
 
-      <Pressable style={[styles.primary, busy && styles.disabled]} onPress={handleCreate} disabled={busy}>
-        <Text style={styles.primaryText}>Создать {count} будильников</Text>
-      </Pressable>
-      <Pressable style={styles.secondary} onPress={onCancel} disabled={busy}>
-        <Text style={styles.secondaryText}>Отмена</Text>
-      </Pressable>
+      <TzCard
+        on={tzOn}
+        onToggle={setTzOn}
+        tz={tz}
+        onTz={setTz}
+        time={start}
+        date={kind === 'ONE_DATE' ? date : dateToKey(new Date())}
+      />
+
+      <FormActions onSave={handleCreate} onCancel={onCancel} busy={busy} />
     </View>
   );
 }

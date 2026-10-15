@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Bell, RotateCcw } from 'lucide-react-native';
+import { Bell, RotateCcw, Folder, ArrowLeft } from 'lucide-react-native';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing } from '../theme/spacing';
@@ -16,6 +16,7 @@ import {
   deleteAlarmTimeOverride,
   saveAlarmTimeOverride,
 } from '../native/alarmCore';
+import { loadSeries, AlarmSeries } from '../native/alarmSeries';
 import { addMinutesToTime, formatKeyLong, shortTime } from '../utils/timeUtils';
 
 export type DayDetails = {
@@ -28,7 +29,8 @@ export type DayDetails = {
 type Mode =
   | { type: 'list' }
   | { type: 'ruleTime'; ruleId: string; time: string; baseTime: string; hadOverride: boolean }
-  | { type: 'extra'; alarm: NativeExtraAlarm | null };
+  | { type: 'extra'; alarm: NativeExtraAlarm | null; fromSeries?: string }
+  | { type: 'folder'; id: string };
 
 type Props = {
   visible: boolean;
@@ -56,9 +58,13 @@ export function DaySheet({
   onAddReminder,
 }: Props) {
   const [mode, setMode] = useState<Mode>({ type: 'list' });
+  const [series, setSeries] = useState<AlarmSeries[]>([]);
 
   useEffect(() => {
-    if (visible) setMode({ type: 'list' });
+    if (visible) {
+      setMode({ type: 'list' });
+      loadSeries().then(setSeries);
+    }
   }, [visible, details?.dateKey]);
 
   if (!details) {
@@ -71,8 +77,16 @@ export function DaySheet({
     setMode({ type: 'list' });
   }
 
+  /** Системная «назад»: поднимается на один шаг, а не закрывает всю шторку. */
+  function stepBack() {
+    if (mode.type === 'list') onClose();
+    else if (mode.type === 'extra' && mode.fromSeries) setMode({ type: 'folder', id: mode.fromSeries });
+    else backToList();
+  }
+
   function handleChanged() {
-    backToList();
+    if (mode.type === 'extra' && mode.fromSeries) setMode({ type: 'folder', id: mode.fromSeries });
+    else backToList();
     onChanged();
   }
 
@@ -94,6 +108,43 @@ export function DaySheet({
     } catch (error) {
       Alert.alert('Не удалось сбросить время', String(error));
     }
+  }
+
+  function renderExtraRow(extra: NativeExtraAlarmInstance, fromSeries?: string) {
+    const full = extraAlarms.find(a => a.id === extra.alarmId) ?? null;
+    return (
+      <Pressable
+        key={`${extra.alarmId}-${extra.timeLocal}`}
+        style={styles.row}
+        onPress={() => full && setMode({ type: 'extra', alarm: full, fromSeries })}
+      >
+        <Text style={styles.rowTime}>{shortTime(extra.timeLocal)}</Text>
+        <Text style={styles.rowMeta} numberOfLines={1}>
+          {extra.label || 'Будильник'}
+        </Text>
+      </Pressable>
+    );
+  }
+
+  function renderFolder(id: string) {
+    const sr = series.find(x => x.id === id);
+    const items = details!.extras.filter(e => sr?.alarmIds.includes(e.alarmId));
+    return (
+      <View>
+        <View style={styles.folderHead}>
+          <View style={styles.folderIcon}>
+            <Folder color={colors.accent} size={18} />
+          </View>
+          <Text style={styles.folderTitle} numberOfLines={1}>{sr?.name ?? 'Серия'}</Text>
+        </View>
+        {items.map(extra => renderExtraRow(extra, id))}
+        <Text style={styles.hint}>Нажми на будильник, чтобы изменить его.</Text>
+        <Pressable style={styles.outline} onPress={backToList}>
+          <ArrowLeft color={colors.accent} size={18} />
+          <Text style={styles.outlineText}>Назад</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   function renderList() {
@@ -142,34 +193,41 @@ export function DaySheet({
         {details!.extras.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Дополнительные</Text>
-            {details!.extras.map(extra => {
-              const full = extraAlarms.find(a => a.id === extra.alarmId) ?? null;
-              return (
-                <Pressable
-                  key={`${extra.alarmId}-${extra.timeLocal}`}
-                  style={styles.row}
-                  onPress={() => full && setMode({ type: 'extra', alarm: full })}
-                >
-                  <Text style={styles.rowTime}>{shortTime(extra.timeLocal)}</Text>
-                  <Text style={styles.rowMeta} numberOfLines={1}>
-                    {extra.label || 'Будильник'}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            {details!.extras
+              .filter(extra => !series.some(sr => sr.alarmIds.includes(extra.alarmId)))
+              .map(extra => renderExtraRow(extra))}
+            {series
+              .map(sr => ({ sr, items: details!.extras.filter(e => sr.alarmIds.includes(e.alarmId)) }))
+              .filter(g => g.items.length > 0)
+              .map(({ sr, items }) => {
+                const times = items.map(e => e.timeLocal).sort();
+                return (
+                  <Pressable key={sr.id} style={styles.row} onPress={() => setMode({ type: 'folder', id: sr.id })}>
+                    <View style={styles.folderIcon}>
+                      <Folder color={colors.accent} size={18} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.folderName} numberOfLines={1}>{sr.name}</Text>
+                      <Text style={styles.rowMeta} numberOfLines={1}>
+                        {items.length} шт. · {shortTime(times[0])}–{shortTime(times[times.length - 1])}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
           </View>
         )}
 
         {details!.events.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>События</Text>
+            <Text style={styles.sectionTitle}>Напоминания</Text>
             {details!.events.map(event => (
               <Pressable key={event.id} style={styles.row} onPress={() => onOpenEvent(event)}>
                 <View style={[styles.dot, { backgroundColor: event.color }]} />
                 <Text style={styles.rowTime}>{shortTime(event.timeLocal)}</Text>
                 <Text style={styles.rowMeta} numberOfLines={1}>
                   {event.label}
-                  {event.reminderEnabled ? '' : ' · без напоминания'}
+                  {!event.reminderEnabled ? ' · без сигнала' : event.urgent ? ' · звонок' : ' · уведомление'}
                 </Text>
               </Pressable>
             ))}
@@ -225,23 +283,25 @@ export function DaySheet({
             <Text style={styles.outlineText}>Вернуть обычное время · {shortTime(m.baseTime)}</Text>
           </Pressable>
         )}
-        <Pressable style={styles.secondary} onPress={backToList}>
-          <Text style={styles.secondaryText}>Назад</Text>
+        <Pressable style={styles.outline} onPress={backToList}>
+          <ArrowLeft color={colors.accent} size={18} />
+          <Text style={styles.outlineText}>Назад</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
+    <BottomSheet visible={visible} onClose={onClose} onBack={stepBack}>
       {mode.type === 'list' && renderList()}
       {mode.type === 'ruleTime' && renderRuleTime(mode)}
+      {mode.type === 'folder' && renderFolder(mode.id)}
       {mode.type === 'extra' && (
         <ExtraAlarmForm
           alarm={mode.alarm}
           fixedDate={dateKey}
           onDone={handleChanged}
-          onCancel={backToList}
+          onCancel={() => (mode.fromSeries ? setMode({ type: 'folder', id: mode.fromSeries }) : backToList())}
         />
       )}
     </BottomSheet>
@@ -265,6 +325,17 @@ const styles = StyleSheet.create({
   rowTime: { fontSize: 22, fontWeight: '700', color: colors.textPrimary },
   rowMeta: { ...typography.caption, color: colors.textSecondary, flex: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },
+  folderIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: 'rgba(232,135,90,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  folderName: { ...typography.body, fontWeight: '600', color: colors.textPrimary },
+  folderHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  folderTitle: { ...typography.headline, color: colors.textPrimary, flex: 1 },
   hint: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
   empty: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
   primary: {

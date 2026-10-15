@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, Modal,
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { ChevronLeft, ChevronRight, Clock, Plus, Trash2, Check, X, CalendarRange } from 'lucide-react-native';
+import { TimeField } from '../../components/TimeField';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Check, X, CalendarRange } from 'lucide-react-native';
 import uuid from 'react-native-uuid';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -263,7 +263,6 @@ export function ConfigureScheduleScreen() {
     }
     return d;
   });
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
 
   // При редактировании дата старта берётся из сохранённого графика напрямую
   // (стрелки сдвига цикла при этом временно не пересчитывают её заново).
@@ -584,26 +583,16 @@ const hasChanges = useMemo(() => {
       </View>
 
       <Text style={styles.sectionLabel}>Время будильника</Text>
-      <Pressable style={styles.timeRow} onPress={() => setIsPickerOpen(true)}>
-        <Clock color={colors.textSecondary} size={20} />
-        <Text style={styles.timeValue}>{formatTime(shiftTime)}</Text>
-        <Text style={styles.timeHint}>изменить</Text>
-      </Pressable>
-
-      {isPickerOpen && (
-        <DateTimePicker
-          value={shiftTime}
-          mode="time"
-          is24Hour
-          onValueChange={(event, selected) => {
-            setIsPickerOpen(false);
-            if (selected) {
-              setShiftTime(selected);
-            }
-          }}
-          onDismiss={() => setIsPickerOpen(false)}
-        />
-      )}
+      <TimeField
+        value={`${formatTime(shiftTime)}:00`}
+        onChange={v => {
+          const [h, m] = v.split(':').map(Number);
+          const d = new Date(shiftTime);
+          d.setHours(h, m, 0, 0);
+          setShiftTime(d);
+        }}
+        title="Время будильника"
+      />
 
 {existingSchedule && (
   <>

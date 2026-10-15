@@ -43,7 +43,7 @@ type DayRow = {
   hasAlarms: boolean; // в этот день хоть что-то зазвонит
   hasCalendarChanges: boolean; // день изменён через календарь: будильник на дату или другое время
   time: string | null; // самый ранний будильник дня
-  alarmCount: number; // сколько всего будильников в этот день
+  alarmCount: number; // сколько всего будильников в этот день (напоминания не считаем)
   events: NativeCustomEvent[];
   details: DayDetails;
   isPaused: boolean;
@@ -223,11 +223,8 @@ function handleScroll(e: { nativeEvent: { contentOffset: { y: number } } }) {
 
       // Все моменты, когда в этот день реально зазвонит телефон: смена,
       // дополнительные будильники и события с включённым напоминанием.
-      const ringTimes = [
-        ...scheduleTimes,
-        ...dayExtras.map(e => e.timeLocal),
-        ...dayEvents.filter(e => e.reminderEnabled).map(e => e.timeLocal),
-      ].sort();
+      // Только будильники. Напоминания сюда не попадают: о них скажет уведомление или звонок.
+      const ringTimes = [...scheduleTimes, ...dayExtras.map(e => e.timeLocal)].sort();
 
       rows.push({
         date: day,

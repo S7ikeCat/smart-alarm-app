@@ -759,6 +759,16 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -774,6 +784,8 @@ internal interface UniffiLib : Library {
         
     }
 
+    fun uniffi_alarm_core_fn_func_complete_reminder_ffi(`dbPath`: RustBuffer.ByValue,`eventId`: RustBuffer.ByValue,`doneDate`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_convert_event_time_ffi(`date`: RustBuffer.ByValue,`time`: RustBuffer.ByValue,`sourceTz`: RustBuffer.ByValue,`leadMinutes`: Int,`deviceTz`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_delete_alarm_time_override_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`date`: RustBuffer.ByValue,`ruleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -782,11 +794,15 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_alarm_core_fn_func_delete_extra_alarm_ffi(`dbPath`: RustBuffer.ByValue,`alarmId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_fn_func_delete_reminder_list_ffi(`dbPath`: RustBuffer.ByValue,`listId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_alarm_core_fn_func_delete_schedule_pause_ffi(`dbPath`: RustBuffer.ByValue,`pauseId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_delete_work_schedule_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_generate_extra_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,`deviceTz`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_generate_reminder_occurrences_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_generate_upcoming_alarms_ffi(`dbPath`: RustBuffer.ByValue,`horizonMonths`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -797,6 +813,8 @@ internal interface UniffiLib : Library {
     fun uniffi_alarm_core_fn_func_load_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_extra_alarms_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_alarm_core_fn_func_load_reminder_lists_ffi(`dbPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_alarm_core_fn_func_load_schedule_pauses_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -811,6 +829,8 @@ internal interface UniffiLib : Library {
     fun uniffi_alarm_core_fn_func_save_day_overrides_ffi(`dbPath`: RustBuffer.ByValue,`scheduleId`: RustBuffer.ByValue,`overrides`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_save_extra_alarm_ffi(`dbPath`: RustBuffer.ByValue,`alarm`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_alarm_core_fn_func_save_reminder_list_ffi(`dbPath`: RustBuffer.ByValue,`list`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_alarm_core_fn_func_save_schedule_pause_ffi(`dbPath`: RustBuffer.ByValue,`pause`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -934,6 +954,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_alarm_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_alarm_core_checksum_func_complete_reminder_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_convert_event_time_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_delete_alarm_time_override_ffi(
@@ -942,11 +964,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_alarm_core_checksum_func_delete_extra_alarm_ffi(
     ): Short
+    fun uniffi_alarm_core_checksum_func_delete_reminder_list_ffi(
+    ): Short
     fun uniffi_alarm_core_checksum_func_delete_schedule_pause_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_delete_work_schedule_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_generate_extra_alarms_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_generate_reminder_occurrences_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi(
     ): Short
@@ -957,6 +983,8 @@ internal interface UniffiLib : Library {
     fun uniffi_alarm_core_checksum_func_load_day_overrides_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_load_extra_alarms_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_load_reminder_lists_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_load_schedule_pauses_ffi(
     ): Short
@@ -971,6 +999,8 @@ internal interface UniffiLib : Library {
     fun uniffi_alarm_core_checksum_func_save_day_overrides_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_extra_alarm_ffi(
+    ): Short
+    fun uniffi_alarm_core_checksum_func_save_reminder_list_ffi(
     ): Short
     fun uniffi_alarm_core_checksum_func_save_schedule_pause_ffi(
     ): Short
@@ -999,6 +1029,9 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_alarm_core_checksum_func_complete_reminder_ffi() != 10250.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_convert_event_time_ffi() != 35235.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1011,6 +1044,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_delete_extra_alarm_ffi() != 25899.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_alarm_core_checksum_func_delete_reminder_list_ffi() != 9583.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_delete_schedule_pause_ffi() != 41370.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1020,19 +1056,25 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_alarm_core_checksum_func_generate_extra_alarms_ffi() != 9820.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_alarm_core_checksum_func_generate_reminder_occurrences_ffi() != 3380.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_alarm_core_checksum_func_generate_upcoming_alarms_ffi() != 61064.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_alarm_time_overrides_ffi() != 13373.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_alarm_core_checksum_func_load_custom_events_ffi() != 6975.toShort()) {
+    if (lib.uniffi_alarm_core_checksum_func_load_custom_events_ffi() != 4697.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_day_overrides_ffi() != 53290.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_extra_alarms_ffi() != 55615.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_load_reminder_lists_ffi() != 17522.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_load_schedule_pauses_ffi() != 36808.toShort()) {
@@ -1054,6 +1096,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_extra_alarm_ffi() != 16567.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_alarm_core_checksum_func_save_reminder_list_ffi() != 31419.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_alarm_core_checksum_func_save_schedule_pause_ffi() != 54078.toShort()) {
@@ -1421,7 +1466,28 @@ data class CustomEvent (
     var `color`: kotlin.String, 
     var `label`: kotlin.String, 
     var `description`: kotlin.String, 
-    var `reminderEnabled`: kotlin.Boolean
+    /**
+     * Напоминать вообще (выкл — просто запись в списке и в календаре).
+     */
+    var `reminderEnabled`: kotlin.Boolean, 
+    /**
+     * Срочное: приходит как будильник со звонком. Обычное — как уведомление.
+     */
+    var `urgent`: kotlin.Boolean, 
+    /**
+     * Флажок — метка для фильтра «С флажком», на звонок не влияет.
+     */
+    var `flagged`: kotlin.Boolean, 
+    /**
+     * Выполнено: не напоминает и лежит в «Завершено». У повторяющихся не
+     * используется — при выполнении они просто уходят на следующую дату.
+     */
+    var `completed`: kotlin.Boolean, 
+    var `repeat`: ReminderRepeat, 
+    /**
+     * В каком списке лежит напоминание (None — «Напоминания» по умолчанию).
+     */
+    var `listId`: Uuid?
 ) {
     
     companion object
@@ -1440,6 +1506,11 @@ public object FfiConverterTypeCustomEvent: FfiConverterRustBuffer<CustomEvent> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeReminderRepeat.read(buf),
+            FfiConverterOptionalTypeUuid.read(buf),
         )
     }
 
@@ -1450,7 +1521,12 @@ public object FfiConverterTypeCustomEvent: FfiConverterRustBuffer<CustomEvent> {
             FfiConverterString.allocationSize(value.`color`) +
             FfiConverterString.allocationSize(value.`label`) +
             FfiConverterString.allocationSize(value.`description`) +
-            FfiConverterBoolean.allocationSize(value.`reminderEnabled`)
+            FfiConverterBoolean.allocationSize(value.`reminderEnabled`) +
+            FfiConverterBoolean.allocationSize(value.`urgent`) +
+            FfiConverterBoolean.allocationSize(value.`flagged`) +
+            FfiConverterBoolean.allocationSize(value.`completed`) +
+            FfiConverterTypeReminderRepeat.allocationSize(value.`repeat`) +
+            FfiConverterOptionalTypeUuid.allocationSize(value.`listId`)
     )
 
     override fun write(value: CustomEvent, buf: ByteBuffer) {
@@ -1461,6 +1537,11 @@ public object FfiConverterTypeCustomEvent: FfiConverterRustBuffer<CustomEvent> {
             FfiConverterString.write(value.`label`, buf)
             FfiConverterString.write(value.`description`, buf)
             FfiConverterBoolean.write(value.`reminderEnabled`, buf)
+            FfiConverterBoolean.write(value.`urgent`, buf)
+            FfiConverterBoolean.write(value.`flagged`, buf)
+            FfiConverterBoolean.write(value.`completed`, buf)
+            FfiConverterTypeReminderRepeat.write(value.`repeat`, buf)
+            FfiConverterOptionalTypeUuid.write(value.`listId`, buf)
     }
 }
 
@@ -1646,6 +1727,92 @@ public object FfiConverterTypeExtraAlarmInstance: FfiConverterRustBuffer<ExtraAl
             FfiConverterTypeNaiveDate.write(value.`date`, buf)
             FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
             FfiConverterString.write(value.`label`, buf)
+    }
+}
+
+
+
+/**
+ * Список напоминаний («Работа», «Дом»…): название и цвет.
+ */
+data class ReminderList (
+    var `id`: Uuid, 
+    var `name`: kotlin.String, 
+    var `color`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeReminderList: FfiConverterRustBuffer<ReminderList> {
+    override fun read(buf: ByteBuffer): ReminderList {
+        return ReminderList(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ReminderList) = (
+            FfiConverterTypeUuid.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`color`)
+    )
+
+    override fun write(value: ReminderList, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`color`, buf)
+    }
+}
+
+
+
+/**
+ * Конкретное срабатывание напоминания на дату (с учётом повторов).
+ */
+data class ReminderOccurrence (
+    var `eventId`: Uuid, 
+    var `date`: NaiveDate, 
+    var `timeLocal`: NaiveTime, 
+    var `label`: kotlin.String, 
+    var `urgent`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeReminderOccurrence: FfiConverterRustBuffer<ReminderOccurrence> {
+    override fun read(buf: ByteBuffer): ReminderOccurrence {
+        return ReminderOccurrence(
+            FfiConverterTypeUuid.read(buf),
+            FfiConverterTypeNaiveDate.read(buf),
+            FfiConverterTypeNaiveTime.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ReminderOccurrence) = (
+            FfiConverterTypeUuid.allocationSize(value.`eventId`) +
+            FfiConverterTypeNaiveDate.allocationSize(value.`date`) +
+            FfiConverterTypeNaiveTime.allocationSize(value.`timeLocal`) +
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterBoolean.allocationSize(value.`urgent`)
+    )
+
+    override fun write(value: ReminderOccurrence, buf: ByteBuffer) {
+            FfiConverterTypeUuid.write(value.`eventId`, buf)
+            FfiConverterTypeNaiveDate.write(value.`date`, buf)
+            FfiConverterTypeNaiveTime.write(value.`timeLocal`, buf)
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterBoolean.write(value.`urgent`, buf)
     }
 }
 
@@ -2010,6 +2177,43 @@ public object FfiConverterTypeInstanceStatus: FfiConverterRustBuffer<InstanceSta
     override fun allocationSize(value: InstanceStatus) = 4UL
 
     override fun write(value: InstanceStatus, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Как часто повторяется напоминание.
+ */
+
+enum class ReminderRepeat {
+    
+    ONCE,
+    DAILY,
+    WEEKDAYS,
+    WEEKLY,
+    MONTHLY,
+    YEARLY;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeReminderRepeat: FfiConverterRustBuffer<ReminderRepeat> {
+    override fun read(buf: ByteBuffer) = try {
+        ReminderRepeat.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: ReminderRepeat) = 4UL
+
+    override fun write(value: ReminderRepeat, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -2461,6 +2665,62 @@ public object FfiConverterSequenceTypeExtraAlarmInstance: FfiConverterRustBuffer
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeReminderList: FfiConverterRustBuffer<List<ReminderList>> {
+    override fun read(buf: ByteBuffer): List<ReminderList> {
+        val len = buf.getInt()
+        return List<ReminderList>(len) {
+            FfiConverterTypeReminderList.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ReminderList>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeReminderList.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ReminderList>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeReminderList.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeReminderOccurrence: FfiConverterRustBuffer<List<ReminderOccurrence>> {
+    override fun read(buf: ByteBuffer): List<ReminderOccurrence> {
+        val len = buf.getInt()
+        return List<ReminderOccurrence>(len) {
+            FfiConverterTypeReminderOccurrence.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ReminderOccurrence>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeReminderOccurrence.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ReminderOccurrence>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeReminderOccurrence.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeSchedulePause: FfiConverterRustBuffer<List<SchedulePause>> {
     override fun read(buf: ByteBuffer): List<SchedulePause> {
         val len = buf.getInt()
@@ -2569,6 +2829,19 @@ public typealias FfiConverterTypeNaiveTime = FfiConverterString
 public typealias Uuid = kotlin.String
 public typealias FfiConverterTypeUuid = FfiConverterString
         /**
+         * Отмечает напоминание выполненным. Разовое уходит в «Завершено»; повторяющееся
+         * переезжает на следующую дату после `done_date` и остаётся невыполненным.
+         */
+    @Throws(AlarmCoreException::class) fun `completeReminderFfi`(`dbPath`: kotlin.String, `eventId`: Uuid, `doneDate`: NaiveDate)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_complete_reminder_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`eventId`),FfiConverterTypeNaiveDate.lower(`doneDate`),_status)
+}
+    
+    
+
+        /**
          * FFI: то же для вызова из Kotlin/RN (подсказка «10:00 (Екатеринбург) → 08:00»).
          */
     @Throws(AlarmCoreException::class) fun `convertEventTimeFfi`(`date`: NaiveDate, `time`: NaiveTime, `sourceTz`: kotlin.String, `leadMinutes`: kotlin.UInt, `deviceTz`: kotlin.String): EventLocalTime {
@@ -2618,6 +2891,18 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     
 
         /**
+         * Удаляет список. Напоминания из него не удаляются — они переезжают в общий список.
+         */
+    @Throws(AlarmCoreException::class) fun `deleteReminderListFfi`(`dbPath`: kotlin.String, `listId`: Uuid)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_delete_reminder_list_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeUuid.lower(`listId`),_status)
+}
+    
+    
+
+        /**
          * Удаляет паузу по id. ВАЖНО: сама по себе НЕ снимает day_overrides,
          * которые были проставлены вместе с ней — это отдельный шаг на мобильной
          * стороне (загрузить overrides паузы по диапазону, убрать их).
@@ -2660,6 +2945,20 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     
 
         /**
+         * Срабатывания напоминаний на `horizon_months` вперёд (с учётом повторов).
+         * Окно начинается со вчерашнего дня — так же, как у будильников графиков.
+         */
+    @Throws(AlarmCoreException::class) fun `generateReminderOccurrencesFfi`(`dbPath`: kotlin.String, `horizonMonths`: kotlin.UInt): List<ReminderOccurrence> {
+            return FfiConverterSequenceTypeReminderOccurrence.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_generate_reminder_occurrences_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterUInt.lower(`horizonMonths`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Генерирует и объединяет предстоящие будильники всех активных графиков
          * за один вызов — мобильной стороне не нужно знать, сколько графиков есть
          * и как их правильно смешивать между собой. Окно — от вчера на
@@ -2689,7 +2988,7 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     
 
         /**
-         * Загружает все сохранённые события.
+         * Загружает все сохранённые события (напоминания).
          */
     @Throws(AlarmCoreException::class) fun `loadCustomEventsFfi`(`dbPath`: kotlin.String): List<CustomEvent> {
             return FfiConverterSequenceTypeCustomEvent.lift(
@@ -2721,6 +3020,16 @@ public typealias FfiConverterTypeUuid = FfiConverterString
             return FfiConverterSequenceTypeExtraAlarm.lift(
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_extra_alarms_ffi(
+        FfiConverterString.lower(`dbPath`),_status)
+}
+    )
+    }
+    
+
+    @Throws(AlarmCoreException::class) fun `loadReminderListsFfi`(`dbPath`: kotlin.String): List<ReminderList> {
+            return FfiConverterSequenceTypeReminderList.lift(
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_load_reminder_lists_ffi(
         FfiConverterString.lower(`dbPath`),_status)
 }
     )
@@ -2813,6 +3122,18 @@ public typealias FfiConverterTypeUuid = FfiConverterString
     uniffiRustCallWithError(AlarmCoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_extra_alarm_ffi(
         FfiConverterString.lower(`dbPath`),FfiConverterTypeExtraAlarm.lower(`alarm`),_status)
+}
+    
+    
+
+        /**
+         * Сохраняет список напоминаний (UPSERT по id).
+         */
+    @Throws(AlarmCoreException::class) fun `saveReminderListFfi`(`dbPath`: kotlin.String, `list`: ReminderList)
+        = 
+    uniffiRustCallWithError(AlarmCoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_alarm_core_fn_func_save_reminder_list_ffi(
+        FfiConverterString.lower(`dbPath`),FfiConverterTypeReminderList.lower(`list`),_status)
 }
     
     

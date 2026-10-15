@@ -1,6 +1,7 @@
 package com.mobile
 
 import android.app.AlarmManager
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,17 +9,23 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.PixelFormat
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
+import android.view.View
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,12 +44,20 @@ class AlarmService : Service() {
         dismissAlarm("автоостановка: никто не отреагировал за 10 минут")
     }
     private var fadeRunnable: Runnable? = null
+    private var overlayView: View? = null
+
+    // Во время голосового чата играем мягче: тише и тем же каналом, что и сам чат.
+    private var volumeCap = 1f
 
     companion object {
         const val ACTION_START = "com.mobile.ALARM_START"
         const val ACTION_STOP = "com.mobile.ALARM_STOP"
         const val ACTION_SNOOZE = "com.mobile.ALARM_SNOOZE"
         const val ACTION_DISMISSED = "com.mobile.ALARM_DISMISSED"
+
+        /** true, пока на экране плашка звонка поверх приложений (окно этого сервиса). */
+        @Volatile
+        var overlayShowing = false
 
         private const val CHANNEL_ID = "alarm_ring_channel"
         private const val NOTIFICATION_ID = 1
@@ -60,24 +75,90 @@ class AlarmService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> dismissAlarm("выключен пользователем")
-            ACTION_SNOOZE -> {
-                if (AlarmSettings.snoozesLeft(this, alarmId) == 0) {
-                    AlarmJournal.log(this, "сервис: откладывать больше нельзя, лимит исчерпан")
-                } else {
-                    scheduleSnooze()
-                    dismissAlarm("отложен", clearSnoozeCount = false)
-                }
-            }
+            ACTION_STOP -> stopByUser()
+            ACTION_SNOOZE -> snoozeByUser()
             else -> startAlarm(intent)
         }
         return START_NOT_STICKY
     }
 
+    private fun stopByUser() = dismissAlarm("выключен пользователем")
+
+    private fun snoozeByUser() {
+        if (AlarmSettings.snoozesLeft(this, alarmId) == 0) {
+            AlarmJournal.log(this, "сервис: откладывать больше нельзя, лимит исчерпан")
+        } else {
+            scheduleSnooze()
+            dismissAlarm("отложен", clearSnoozeCount = false)
+        }
+    }
+
+    /** Плашку поверх приложений показываем, только если телефон разблокирован и есть разрешение. */
+    private fun shouldShowOverlay(): Boolean {
+        if (!Settings.canDrawOverlays(this)) return false
+        val power = getSystemService(PowerManager::class.java)
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        return power.isInteractive && !keyguard.isKeyguardLocked
+    }
+
+    private fun showOverlay() {
+        try {
+            val wm = getSystemService(WindowManager::class.java)
+            val view = RingScreenView(
+                this,
+                alarmLabel,
+                AlarmSettings.snoozesLeft(this, alarmId),
+                AlarmSettings.snoozeMinutes(this),
+                AlarmSettings.shakeMode(this),
+                true,
+                { stopByUser() },
+                { snoozeByUser() },
+                alarmId.startsWith("event:"),
+            )
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                type,
+                // NOT_FOCUSABLE: приложение под плашкой не теряет фокус окна (чат, демонстрация экрана).
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                PixelFormat.TRANSLUCENT,
+            )
+            wm.addView(view, params)
+            overlayView = view
+            overlayShowing = true
+            AlarmJournal.log(this, "сервис: плашка показана поверх приложений")
+        } catch (e: Exception) {
+            overlayView = null
+            overlayShowing = false
+            AlarmJournal.log(this, "ОШИБКА плашки поверх приложений: ${e.message}")
+        }
+    }
+
+    private fun hideOverlay() {
+        overlayView?.let {
+            try {
+                getSystemService(WindowManager::class.java).removeView(it)
+            } catch (e: Exception) {
+                // уже убрано
+            }
+        }
+        overlayView = null
+        overlayShowing = false
+    }
+
     private fun startAlarm(intent: Intent?) {
         alarmId = intent?.getStringExtra("alarmId") ?: ""
         alarmLabel = intent?.getStringExtra("label") ?: "Будильник"
-        AlarmJournal.log(this, "сервис: звонок начался «$alarmLabel»")
+        AlarmJournal.log(this, "сервис: звонок начался «$alarmLabel» (id=$alarmId, напоминание=${alarmId.startsWith("event:")})")
 
         createChannelIfNeeded()
         val notification = buildNotification()
@@ -97,6 +178,8 @@ class AlarmService : Service() {
         } catch (e: Exception) {
             AlarmJournal.log(this, "ОШИБКА вибрации: ${e.message}")
         }
+
+        if (shouldShowOverlay()) showOverlay()
 
         handler.postDelayed(autoStopRunnable, AUTO_STOP_MS)
     }
@@ -140,8 +223,8 @@ class AlarmService : Service() {
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(alarmLabel)
-            .setContentText(if (AlarmSettings.shakeRequired(this)) "Нажми и встряхни телефон" else "Нажми, чтобы открыть")
+            .setContentTitle(if (alarmId.startsWith("event:")) "Напоминание · $alarmLabel" else alarmLabel)
+            .setContentText(if (AlarmSettings.shakeMode(this) == 1) "Нажми и встряхни телефон" else "Нажми, чтобы открыть")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -150,7 +233,7 @@ class AlarmService : Service() {
             .setFullScreenIntent(activityPending, true)
 
         // Режим «встряхни» — выключить из шторки нельзя, только на экране звонка.
-        if (!AlarmSettings.shakeRequired(this)) {
+        if (AlarmSettings.shakeMode(this) != 1) {
             builder.addAction(0, "Выключить", servicePending(ACTION_STOP, 1))
         }
 
@@ -184,15 +267,28 @@ class AlarmService : Service() {
     private fun createPlayer(uri: android.net.Uri, fadeSeconds: Int): MediaPlayer {
         val player = MediaPlayer()
         try {
+            val audio = getSystemService(AudioManager::class.java)
+            val inVoiceChat = audio.mode == AudioManager.MODE_IN_COMMUNICATION ||
+                audio.mode == AudioManager.MODE_IN_CALL
+            volumeCap = if (inVoiceChat) 0.6f else 1f
+            AlarmJournal.log(this, if (inVoiceChat) "идёт голосовой чат/звонок — мягкий режим звука" else "звук: обычный режим")
             player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
+                if (inVoiceChat) {
+                    // тот же канал, что у чата: маршрут звука не меняется, чат не сбрасывается
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                } else {
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                },
             )
             player.setDataSource(this, uri)
             player.isLooping = true
-            if (fadeSeconds > 0) player.setVolume(0f, 0f)
+            if (fadeSeconds > 0) player.setVolume(0f, 0f) else if (volumeCap < 1f) player.setVolume(volumeCap, volumeCap)
             player.prepare()
             return player
         } catch (e: Exception) {
@@ -210,7 +306,7 @@ class AlarmService : Service() {
                 val player = mediaPlayer ?: return
                 val progress = ((SystemClock.elapsedRealtime() - startedAt) / (fadeSeconds * 1000f))
                     .coerceIn(0f, 1f)
-                val volume = progress * progress // тихий старт, потом быстрее
+                val volume = progress * progress * volumeCap // тихий старт, потом быстрее
                 try {
                     player.setVolume(volume, volume)
                 } catch (e: Exception) {
@@ -257,6 +353,7 @@ class AlarmService : Service() {
             val alarmManager = getSystemService(AlarmManager::class.java)
             val triggerAt = System.currentTimeMillis() + minutes * 60_000L
             val snoozeIntent = Intent(this, AlarmReceiver::class.java).apply {
+                putExtra("snooze", true)
                 putExtra("alarmId", alarmId)
                 putExtra("label", alarmLabel)
                 putExtra("triggerAt", triggerAt)
@@ -285,12 +382,14 @@ class AlarmService : Service() {
         if (clearSnoozeCount) AlarmSettings.clearSnoozeCount(this)
         handler.removeCallbacks(autoStopRunnable)
         stopRingingAndVibrating()
+        hideOverlay()
         stopForeground(STOP_FOREGROUND_REMOVE)
         sendBroadcast(Intent(ACTION_DISMISSED).setPackage(packageName))
         stopSelf()
     }
 
     override fun onDestroy() {
+        hideOverlay()
         handler.removeCallbacks(autoStopRunnable)
         fadeRunnable?.let { handler.removeCallbacks(it) }
         mediaPlayer?.release()

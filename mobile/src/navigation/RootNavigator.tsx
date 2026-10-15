@@ -6,7 +6,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { RootTabParamList, SchedulesStackParamList, CalendarStackParamList } from './types';
+import { RootTabParamList, SchedulesStackParamList, CalendarStackParamList, ToolsStackParamList } from './types';
 import { CalendarScreen } from '../screens/calendar/CalendarScreen';
 import { AddEventScreen } from '../screens/calendar/AddEventScreen';
 import { SchedulesScreen } from '../screens/schedules/SchedulesScreen';
@@ -15,6 +15,8 @@ import { ConfigureScheduleScreen } from '../screens/schedules/ConfigureScheduleS
 import { CustomPatternScreen } from '../screens/schedules/CustomPatternScreen';
 import { ExtraAlarmsScreen } from '../screens/alarms/ExtraAlarmsScreen';
 import { ToolsScreen } from '../screens/tools/ToolsScreen';
+import { RemindersHubScreen } from '../screens/tools/RemindersHubScreen';
+import { ReminderListScreen } from '../screens/tools/ReminderListScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { colors } from '../theme/colors';
 
@@ -23,6 +25,7 @@ import { Calendar, CalendarRange, Timer, Settings, AlarmClock } from 'lucide-rea
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const SchedulesStack = createNativeStackNavigator<SchedulesStackParamList>();
 const CalendarStack = createNativeStackNavigator<CalendarStackParamList>();
+const ToolsStack = createNativeStackNavigator<ToolsStackParamList>();
 
 function SchedulesStackNavigator() {
   return (
@@ -76,9 +79,31 @@ function CalendarStackNavigator() {
       <CalendarStack.Screen
         name="AddEvent"
         component={AddEventScreen}
-        options={{ title: 'Новое событие' }}
+        options={{ title: 'Напоминание' }}
       />
     </CalendarStack.Navigator>
+  );
+}
+
+function ToolsStackNavigator() {
+  return (
+    <ToolsStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.textPrimary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <ToolsStack.Screen name="ToolsHome" component={ToolsScreen} options={{ headerShown: false }} />
+      <ToolsStack.Screen name="RemindersHub" component={RemindersHubScreen} options={{ title: 'Напоминания' }} />
+      <ToolsStack.Screen
+        name="ReminderList"
+        component={ReminderListScreen}
+        options={({ route }) => ({ title: route.params.title })}
+      />
+      <ToolsStack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Напоминание' }} />
+    </ToolsStack.Navigator>
   );
 }
 
@@ -123,7 +148,7 @@ function AppNavigator() {
         />
         <Tab.Screen
           name="Tools"
-          component={ToolsScreen}
+          component={ToolsStackNavigator}
           options={{
             title: 'Инструменты',
             tabBarIcon: ({ color, size }) => <Timer color={color} size={size} />,

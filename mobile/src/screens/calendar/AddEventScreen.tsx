@@ -3,26 +3,39 @@ import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Calendar as CalendarIcon, Clock, Bell, BellOff } from 'lucide-react-native';
+import {
+  Calendar as CalendarIcon,
+  Bell,
+  BellOff,
+  BellRing,
+  Flag,
+  Repeat,
+  ListTodo,
+} from 'lucide-react-native';
 import uuid from 'react-native-uuid';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
 import type { CalendarStackParamList } from '../../navigation/types';
-import { saveCustomEvent, loadCustomEvents, deleteCustomEvent, NativeCustomEvent } from '../../native/alarmCore';
+import {
+  saveCustomEvent,
+  deleteCustomEvent,
+  loadReminderLists,
+  NativeReminderList,
+  ReminderRepeat,
+} from '../../native/alarmCore';
+import { SelectRow } from '../../components/SelectRow';
+import { TimeField } from '../../components/TimeField';
+import { requestNotificationPermission } from '../../native/permissions';
+import { REPEAT_LABELS, REPEAT_OPTIONS, DEFAULT_REMINDER_COLOR } from '../../utils/reminders';
 
 type Navigation = NativeStackNavigationProp<CalendarStackParamList, 'AddEvent'>;
 type Route = RouteProp<CalendarStackParamList, 'AddEvent'>;
 
-const EVENT_COLORS = ['#B08AC7', '#E8875A', '#4A7A6B', '#C0453A', '#6B8CAE'];
 const DESCRIPTION_LIMIT = 700;
 
 function formatDate(date: Date) {
   return date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' });
-}
-
-function formatTime(date: Date) {
-  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
 function dateKeyOf(d: Date) {
@@ -53,7 +66,11 @@ export function AddEventScreen() {
   const [label, setLabel] = useState(existingEvent?.label ?? '');
   const [description, setDescription] = useState(existingEvent?.description ?? '');
   const [reminderEnabled, setReminderEnabled] = useState(existingEvent?.reminderEnabled ?? true);
-  const [selectedColor, setSelectedColor] = useState(existingEvent?.color ?? EVENT_COLORS[0]);
+  const [urgent, setUrgent] = useState(existingEvent?.urgent ?? false);
+  const [flagged, setFlagged] = useState(existingEvent?.flagged ?? false);
+  const [repeat, setRepeat] = useState<ReminderRepeat>(existingEvent?.repeat ?? 'ONCE');
+  const [listId, setListId] = useState<string | null>(existingEvent?.listId ?? route.params?.listId ?? null);
+  const [lists, setLists] = useState<NativeReminderList[]>([]);
   const [date, setDate] = useState(() =>
     existingEvent
       ? parseIso(existingEvent.date)
@@ -73,110 +90,42 @@ export function AddEventScreen() {
     return d;
   });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [isTimePickerOpen, setIsTimePickerOpen] = useState(false);
-  const [allEvents, setAllEvents] = useState<NativeCustomEvent[]>([]);
-  
-// Подгружаем список всех событий один раз — нужен, чтобы проверять,
-// не занята ли выбранная дата уже другим событием.
-useEffect(() => {
-  loadCustomEvents().then(setAllEvents);
-}, []);
-
-// Проверяем дефолтную дату сразу после загрузки списка событий — раньше
-// проверка срабатывала только когда пользователь САМ открывал календарь
-// и явно выбирал дату. Если дата ни разу не менялась (осталась "сегодня"
-// по умолчанию), а на сегодня уже есть событие — конфликт незаметно
-// проходил мимо, и получалось два события на одну дату разом.
-useEffect(() => {
-  if (isEditing || allEvents.length === 0) return;
-
-  const key = dateKeyOf(date);
-  const conflicting = allEvents.find(ev => ev.date === key);
-  if (conflicting) {
-    Alert.alert(
-      'На эту дату уже есть событие',
-      `«${conflicting.label}» — открыть его для редактирования?`,
-      [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Открыть существующее',
-          onPress: () => navigation.setParams({ existingEvent: conflicting }),
-        },
-      ],
-    );
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [allEvents]);
-  
-  // useState-инициализатор срабатывает только при первом рендере — когда
-  // existingEvent меняется ПОЗЖЕ через navigation.setParams (пользователь
-  // выбрал "Открыть существующее" при конфликте дат, оставаясь на этом же
-  // экране), поля сами не обновятся без явного эффекта здесь.
   useEffect(() => {
-    if (!existingEvent) return;
-  
-    setLabel(existingEvent.label);
-    setDescription(existingEvent.description);
-    setReminderEnabled(existingEvent.reminderEnabled);
-    setSelectedColor(existingEvent.color);
-    setDate(parseIso(existingEvent.date));
-  
-    const [h, m] = existingEvent.timeLocal.split(':').map(Number);
-    const t = new Date();
-    t.setHours(h, m, 0, 0);
-    setTime(t);
-   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [existingEvent?.id]);
+    loadReminderLists().then(setLists).catch(() => {});
+  }, []);
 
   const canSave = label.trim().length > 0;
-
-  function handlePickDate(selected: Date) {
-    const key = dateKeyOf(selected);
-    const conflicting = allEvents.find(
-      ev => ev.date === key && ev.id !== existingEvent?.id,
-    );
-
-    if (conflicting) {
-      Alert.alert(
-        'На эту дату уже есть событие',
-        `«${conflicting.label}» — открыть его для редактирования?`,
-        [
-          { text: 'Отмена', style: 'cancel' },
-          {
-            text: 'Открыть существующее',
-            onPress: () => navigation.setParams({ existingEvent: conflicting }),
-          },
-        ],
-      );
-      return;
-    }
-
-    setDate(selected);
-  }
 
   async function handleSave() {
     const dateStr = dateKeyOf(date);
     const timeStr = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:00`;
 
     try {
+      if (reminderEnabled && !urgent) await requestNotificationPermission();
+      const listColor = lists.find(l => l.id === listId)?.color;
       await saveCustomEvent({
         id: existingEvent?.id ?? (uuid.v4() as string),
         date: dateStr,
         timeLocal: timeStr,
-        color: selectedColor,
+        color: listColor ?? DEFAULT_REMINDER_COLOR,
         label: label.trim(),
         description: description.trim(),
         reminderEnabled,
+        urgent,
+        flagged,
+        repeat,
+        listId,
+        completed: existingEvent?.completed ?? false,
       });
       finish();
     } catch (error) {
-      Alert.alert('Не удалось сохранить событие', String(error));
+      Alert.alert('Не удалось сохранить напоминание', String(error));
     }
   }
 
   function handleDelete() {
     if (!existingEvent) return;
-    Alert.alert('Удалить событие?', `«${existingEvent.label}» будет удалено безвозвратно.`, [
+    Alert.alert('Удалить напоминание?', `«${existingEvent.label}» будет удалено безвозвратно.`, [
       { text: 'Отмена', style: 'cancel' },
       {
         text: 'Удалить',
@@ -195,12 +144,12 @@ useEffect(() => {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.sectionLabel}>Что за событие</Text>
+      <Text style={styles.sectionLabel}>Что напомнить</Text>
       <TextInput
         style={styles.input}
         value={label}
         onChangeText={setLabel}
-        placeholder="Например: день рождения дочки"
+        placeholder="Например: позвонить маме"
         placeholderTextColor={colors.textSecondary}
       />
 
@@ -230,12 +179,13 @@ useEffect(() => {
           mode="date"
           onValueChange={(event, selected) => {
             setIsDatePickerOpen(false);
-            if (selected) handlePickDate(selected);
+            if (selected) setDate(selected);
           }}
           onDismiss={() => setIsDatePickerOpen(false)}
         />
       )}
 
+      <Text style={styles.sectionLabel}>Время</Text>
       <Pressable style={styles.reminderRow} onPress={() => setReminderEnabled(prev => !prev)}>
         {reminderEnabled ? (
           <Bell color={colors.accent} size={20} />
@@ -243,9 +193,9 @@ useEffect(() => {
           <BellOff color={colors.textSecondary} size={20} />
         )}
         <View style={styles.reminderTextBlock}>
-          <Text style={styles.reminderTitle}>Напоминание</Text>
+          <Text style={styles.reminderTitle}>Напомнить в указанное время</Text>
           <Text style={styles.reminderHint}>
-            {reminderEnabled ? 'Сработает в указанное время' : 'Останется просто заметкой в календаре'}
+            {reminderEnabled ? 'Сработает уведомлением' : 'Просто заметка в календаре, без сигнала'}
           </Text>
         </View>
         <View style={[styles.toggle, reminderEnabled && styles.toggleOn]}>
@@ -253,44 +203,65 @@ useEffect(() => {
         </View>
       </Pressable>
 
-      <Text style={styles.sectionLabel}>Время</Text>
-      <Pressable
-        style={[styles.row, !reminderEnabled && styles.rowDisabled]}
-        onPress={() => setIsTimePickerOpen(true)}
-        disabled={!reminderEnabled}
-      >
-        <Clock color={reminderEnabled ? colors.textSecondary : colors.border} size={20} />
-        <Text style={[styles.rowValue, !reminderEnabled && styles.rowValueDisabled]}>
-          {formatTime(time)}
-        </Text>
-      </Pressable>
-
-      {isTimePickerOpen && (
-        <DateTimePicker
-          value={time}
-          mode="time"
-          is24Hour
-          onValueChange={(event, selected) => {
-            setIsTimePickerOpen(false);
-            if (selected) setTime(selected);
+      <View style={{ marginTop: spacing.sm }}>
+        <TimeField
+          value={`${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:00`}
+          onChange={v => {
+            const [h, m] = v.split(':').map(Number);
+            const d = new Date();
+            d.setHours(h, m, 0, 0);
+            setTime(d);
           }}
-          onDismiss={() => setIsTimePickerOpen(false)}
+          title="Время напоминания"
+          disabled={!reminderEnabled}
         />
+      </View>
+
+      {reminderEnabled && (
+        <Pressable style={[styles.reminderRow, { marginTop: spacing.sm }]} onPress={() => setUrgent(prev => !prev)}>
+          <BellRing color={urgent ? colors.accent : colors.textSecondary} size={20} />
+          <View style={styles.reminderTextBlock}>
+            <Text style={styles.reminderTitle}>Срочное</Text>
+            <Text style={styles.reminderHint}>
+              {urgent ? 'Зазвонит как будильник' : 'Обычное уведомление'}
+            </Text>
+          </View>
+          <View style={[styles.toggle, urgent && styles.toggleOn]}>
+            <View style={[styles.toggleThumb, urgent && styles.toggleThumbOn]} />
+          </View>
+        </Pressable>
       )}
 
-      <Text style={styles.sectionLabel}>Цвет</Text>
-      <View style={styles.colorRow}>
-        {EVENT_COLORS.map(color => (
-          <Pressable
-            key={color}
-            style={[
-              styles.colorSwatch,
-              { backgroundColor: color },
-              selectedColor === color && styles.colorSwatchSelected,
-            ]}
-            onPress={() => setSelectedColor(color)}
-          />
-        ))}
+      <Pressable style={[styles.reminderRow, { marginTop: spacing.sm }]} onPress={() => setFlagged(prev => !prev)}>
+        <Flag color={flagged ? '#E8A33D' : colors.textSecondary} size={20} />
+        <View style={styles.reminderTextBlock}>
+          <Text style={styles.reminderTitle}>Флажок</Text>
+          <Text style={styles.reminderHint}>Попадёт в список «С флажком»</Text>
+        </View>
+        <View style={[styles.toggle, flagged && styles.toggleOn]}>
+          <View style={[styles.toggleThumb, flagged && styles.toggleThumbOn]} />
+        </View>
+      </Pressable>
+
+      <View style={styles.pickCard}>
+        <SelectRow
+          title="Повтор"
+          icon={<Repeat color={repeat === 'ONCE' ? colors.textSecondary : colors.accent} size={20} />}
+          value={repeat}
+          onChange={setRepeat}
+          options={REPEAT_OPTIONS.map(r => ({ value: r, label: REPEAT_LABELS[r] }))}
+        />
+        <SelectRow
+          title="Список"
+          icon={<ListTodo color={colors.textSecondary} size={20} />}
+          value={listId}
+          onChange={setListId}
+          options={[
+            { value: null as string | null, label: 'Без списка', color: colors.border },
+            ...lists.map(l => ({ value: l.id as string | null, label: l.name, color: l.color })),
+          ]}
+          footnote={lists.length === 0 ? 'Списков пока нет. Создай их в Инструменты → Напоминания.' : undefined}
+        />
       </View>
 
       <Pressable
@@ -305,7 +276,7 @@ useEffect(() => {
 
       {isEditing && (
         <Pressable style={styles.deleteButton} onPress={handleDelete}>
-          <Text style={styles.deleteButtonText}>Удалить событие</Text>
+          <Text style={styles.deleteButtonText}>Удалить напоминание</Text>
         </Pressable>
       )}
     </ScrollView>
@@ -364,9 +335,8 @@ const styles = StyleSheet.create({
   toggleOn: { backgroundColor: colors.accent },
   toggleThumb: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.textPrimary },
   toggleThumbOn: { alignSelf: 'flex-end' },
-  colorRow: { flexDirection: 'row', gap: spacing.sm },
-  colorSwatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
-  colorSwatchSelected: { borderColor: colors.textPrimary },
+  pickCard: { gap: spacing.sm, marginTop: spacing.lg },
+  chipDot: { width: 10, height: 10, borderRadius: 5 },
   saveButton: {
     marginTop: spacing.xl,
     backgroundColor: colors.accent,

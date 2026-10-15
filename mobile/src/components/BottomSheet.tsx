@@ -15,6 +15,8 @@ import { spacing } from '../theme/spacing';
 type Props = {
   visible: boolean;
   onClose: () => void;
+  /** Системная кнопка «назад»: по умолчанию закрывает шторку, но можно вернуть на шаг назад. */
+  onBack?: () => void;
   children: React.ReactNode;
 };
 
@@ -23,7 +25,7 @@ type Props = {
  * только сама карточка — поэтому анимацию Modal отключаем и рисуем две
  * независимые анимации сами (иначе системная "slide" тащит наверх весь фон).
  */
-export function BottomSheet({ visible, onClose, children }: Props) {
+export function BottomSheet({ visible, onClose, onBack, children }: Props) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const progress = useRef(new Animated.Value(0)).current;
@@ -44,10 +46,10 @@ export function BottomSheet({ visible, onClose, children }: Props) {
   }, [visible]);
 
   return (
-    <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={onBack ?? onClose}>
       <View style={styles.root}>
         <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={onBack ?? onClose} />
         </Animated.View>
         <Animated.View
           style={[

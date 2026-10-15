@@ -35,8 +35,14 @@ class AlarmReceiver : BroadcastReceiver() {
         // Сработавший будильник уже в прошлом, синхронизация его пропустит и
         // добавит в конец пула следующий — запас остаётся полным.
         val pending = goAsync()
+        val isSnooze = intent.getBooleanExtra("snooze", false)
+        val eventKeys = (intent.getStringExtra("eventKeys") ?: "").split(",").filter { it.isNotBlank() }
         Thread {
             try {
+                // Отложенный повтор — тот же звонок: напоминание уже отмечено при первом.
+                if (!isSnooze && eventKeys.isNotEmpty()) {
+                    AlarmSyncer.completeEvents(context.applicationContext, eventKeys)
+                }
                 AlarmSyncer.sync(context.applicationContext, "после звонка")
             } catch (e: Exception) {
                 AlarmJournal.log(context, "ОШИБКА синхронизации после звонка: ${e.message}")

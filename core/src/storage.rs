@@ -69,7 +69,7 @@ pub fn init_db(path: &str) -> Result<Connection> {
 /// Текущая версия схемы. Увеличиваем на 1 при каждом изменении таблиц и
 /// добавляем соответствующий шаг в `migrate`. Данные пользователя при этом
 /// не теряются — никаких "очистить данные приложения" больше не нужно.
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 /// Накатывает недостающие шаги схемы. Версия хранится в `PRAGMA user_version`
 /// (0 = база создана до появления миграций; структура такая же, как v1).
@@ -142,7 +142,32 @@ fn migrate(conn: &Connection) -> Result<()> {
         )?;
     }
 
-    debug_assert_eq!(SCHEMA_VERSION, 3);
+    if version < 4 {
+        // v4: напоминания — срочность, флажок, «выполнено», повтор и списки.
+        // Старые события звонили как будильники, поэтому остаются срочными.
+        conn.execute_batch(
+            "
+            BEGIN;
+            ALTER TABLE custom_events ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE custom_events ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE custom_events ADD COLUMN completed INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE custom_events ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT 'Once';
+            ALTER TABLE custom_events ADD COLUMN list_id TEXT;
+            UPDATE custom_events SET urgent = reminder_enabled;
+
+            CREATE TABLE IF NOT EXISTS reminder_lists (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL
+            );
+
+            PRAGMA user_version = 4;
+            COMMIT;
+            ",
+        )?;
+    }
+
+    debug_assert_eq!(SCHEMA_VERSION, 4);
     Ok(())
 }
 
@@ -744,12 +769,26 @@ pub fn generate_extra_alarms_from(
                 ExtraAlarmKind::OneDate => false,
             };
             if matches {
-                out.push(ExtraAlarmInstance {
-                    alarm_id: alarm.id,
-                    date,
-                    time_local: alarm.time_local,
-                    label: alarm.label.clone(),
-                });
+                // Серия по чужому поясу: каждый день пересчитываем отдельно
+                // (летнее время и т. п. учитываются на конкретную дату).
+                let (day, time) = match &alarm.source_tz {
+                    Some(tz) => match convert_event_time(date, alarm.time_local, tz, alarm.lead_minutes, device_tz) {
+                        Ok(local) => (local.date, local.time_local),
+                        Err(_) => {
+                            date += chrono::Duration::days(1);
+                            continue;
+                        }
+                    },
+                    None => (date, alarm.time_local),
+                };
+                if day >= from {
+                    out.push(ExtraAlarmInstance {
+                        alarm_id: alarm.id,
+                        date: day,
+                        time_local: time,
+                        label: alarm.label.clone(),
+                    });
+                }
             }
             date += chrono::Duration::days(1);
         }
@@ -761,20 +800,76 @@ pub fn generate_extra_alarms_from(
 
 use crate::CustomEvent;
 
+fn repeat_to_str(r: crate::ReminderRepeat) -> &'static str {
+    use crate::ReminderRepeat::*;
+    match r {
+        Once => "Once",
+        Daily => "Daily",
+        Weekdays => "Weekdays",
+        Weekly => "Weekly",
+        Monthly => "Monthly",
+        Yearly => "Yearly",
+    }
+}
+
+fn repeat_from_str(s: &str) -> crate::ReminderRepeat {
+    use crate::ReminderRepeat::*;
+    match s {
+        "Daily" => Daily,
+        "Weekdays" => Weekdays,
+        "Weekly" => Weekly,
+        "Monthly" => Monthly,
+        "Yearly" => Yearly,
+        _ => Once,
+    }
+}
+
+const EVENT_COLUMNS: &str =
+    "id, date, time_local, color, label, description, reminder_enabled, urgent, flagged, completed, repeat_rule, list_id";
+
+fn event_from_row(row: &rusqlite::Row) -> rusqlite::Result<CustomEvent> {
+    let id_str: String = row.get(0)?;
+    let date_str: String = row.get(1)?;
+    let time_str: String = row.get(2)?;
+    let repeat_str: String = row.get(10)?;
+    let list_str: Option<String> = row.get(11)?;
+    Ok(CustomEvent {
+        id: id_str.parse().expect("stored id should always be valid UUID"),
+        date: date_str.parse().expect("stored date should always be valid"),
+        time_local: time_str.parse().expect("stored time should always be valid"),
+        color: row.get(3)?,
+        label: row.get(4)?,
+        description: row.get(5)?,
+        reminder_enabled: row.get(6)?,
+        urgent: row.get(7)?,
+        flagged: row.get(8)?,
+        completed: row.get(9)?,
+        repeat: repeat_from_str(&repeat_str),
+        list_id: list_str.and_then(|s| s.parse().ok()),
+    })
+}
+
 /// Сохраняет новое или обновлённое событие (UPSERT по id).
 #[uniffi::export]
 pub fn save_custom_event_ffi(db_path: String, event: CustomEvent) -> Result<(), AlarmCoreError> {
     let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
     conn.execute(
-        "INSERT INTO custom_events (id, date, time_local, color, label, description, reminder_enabled)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO custom_events
+            (id, date, time_local, color, label, description, reminder_enabled,
+             urgent, flagged, completed, repeat_rule, list_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(id) DO UPDATE SET
             date = excluded.date,
             time_local = excluded.time_local,
             color = excluded.color,
             label = excluded.label,
             description = excluded.description,
-            reminder_enabled = excluded.reminder_enabled",
+            reminder_enabled = excluded.reminder_enabled,
+            urgent = excluded.urgent,
+            flagged = excluded.flagged,
+            completed = excluded.completed,
+            repeat_rule = excluded.repeat_rule,
+            list_id = excluded.list_id",
         (
             event.id.to_string(),
             event.date.to_string(),
@@ -783,39 +878,129 @@ pub fn save_custom_event_ffi(db_path: String, event: CustomEvent) -> Result<(), 
             &event.label,
             &event.description,
             event.reminder_enabled,
+            event.urgent,
+            event.flagged,
+            event.completed,
+            repeat_to_str(event.repeat),
+            event.list_id.map(|u| u.to_string()),
         ),
     )
     .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
     Ok(())
 }
 
-/// Загружает все сохранённые события.
+/// Загружает все сохранённые события (напоминания).
 #[uniffi::export]
 pub fn load_custom_events_ffi(db_path: String) -> Result<Vec<CustomEvent>, AlarmCoreError> {
     let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
     let mut stmt = conn
-    .prepare("SELECT id, date, time_local, color, label, description, reminder_enabled FROM custom_events")
-    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
-
-let rows = stmt
-    .query_map([], |row| {
-        let id_str: String = row.get(0)?;
-        let date_str: String = row.get(1)?;
-        let time_str: String = row.get(2)?;
-        Ok(CustomEvent {
-            id: id_str.parse().expect("stored id should always be valid UUID"),
-            date: date_str.parse().expect("stored date should always be valid"),
-            time_local: time_str.parse().expect("stored time should always be valid"),
-            color: row.get(3)?,
-            label: row.get(4)?,
-            description: row.get(5)?,
-            reminder_enabled: row.get(6)?,
-        })
-    })
+        .prepare(&format!("SELECT {EVENT_COLUMNS} FROM custom_events"))
         .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
-
+    let rows = stmt
+        .query_map([], event_from_row)
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
+/// Отмечает напоминание выполненным. Разовое уходит в «Завершено»; повторяющееся
+/// переезжает на следующую дату после `done_date` и остаётся невыполненным.
+#[uniffi::export]
+pub fn complete_reminder_ffi(
+    db_path: String,
+    event_id: Uuid,
+    done_date: chrono::NaiveDate,
+) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let event = conn
+        .query_row(
+            &format!("SELECT {EVENT_COLUMNS} FROM custom_events WHERE id = ?1"),
+            [event_id.to_string()],
+            event_from_row,
+        )
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+
+    match crate::next_repeat_date(event.date, event.repeat) {
+        None => {
+            conn.execute("UPDATE custom_events SET completed = 1 WHERE id = ?1", [event_id.to_string()])
+                .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+        }
+        Some(mut next) => {
+            let mut guard = 0;
+            while next <= done_date && guard < 20_000 {
+                match crate::next_repeat_date(next, event.repeat) {
+                    Some(d) => next = d,
+                    None => break,
+                }
+                guard += 1;
+            }
+            conn.execute(
+                "UPDATE custom_events SET date = ?1 WHERE id = ?2",
+                (next.to_string(), event_id.to_string()),
+            )
+            .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+        }
+    }
+    Ok(())
+}
+
+/// Срабатывания напоминаний на `horizon_months` вперёд (с учётом повторов).
+/// Окно начинается со вчерашнего дня — так же, как у будильников графиков.
+#[uniffi::export]
+pub fn generate_reminder_occurrences_ffi(
+    db_path: String,
+    horizon_months: u32,
+) -> Result<Vec<crate::ReminderOccurrence>, AlarmCoreError> {
+    let events = load_custom_events_ffi(db_path)?;
+    let from = chrono::Utc::now().date_naive().pred_opt().expect("date in range");
+    let to = from + chrono::Duration::days(31 * horizon_months as i64);
+    Ok(crate::reminder_occurrences(&events, from, to))
+}
+
+use crate::ReminderList;
+
+/// Сохраняет список напоминаний (UPSERT по id).
+#[uniffi::export]
+pub fn save_reminder_list_ffi(db_path: String, list: ReminderList) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute(
+        "INSERT INTO reminder_lists (id, name, color) VALUES (?1, ?2, ?3)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color",
+        (list.id.to_string(), &list.name, &list.color),
+    )
+    .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
+}
+
+#[uniffi::export]
+pub fn load_reminder_lists_ffi(db_path: String) -> Result<Vec<ReminderList>, AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let mut stmt = conn
+        .prepare("SELECT id, name, color FROM reminder_lists ORDER BY rowid")
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    let rows = stmt
+        .query_map([], |row| {
+            let id_str: String = row.get(0)?;
+            Ok(ReminderList {
+                id: id_str.parse().expect("stored id should always be valid UUID"),
+                name: row.get(1)?,
+                color: row.get(2)?,
+            })
+        })
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })
+}
+
+/// Удаляет список. Напоминания из него не удаляются — они переезжают в общий список.
+#[uniffi::export]
+pub fn delete_reminder_list_ffi(db_path: String, list_id: Uuid) -> Result<(), AlarmCoreError> {
+    let conn = init_db(&db_path).map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute("UPDATE custom_events SET list_id = NULL WHERE list_id = ?1", [list_id.to_string()])
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    conn.execute("DELETE FROM reminder_lists WHERE id = ?1", [list_id.to_string()])
+        .map_err(|e| AlarmCoreError::DatabaseError { details: e.to_string() })?;
+    Ok(())
 }
 
 /// Удаляет событие по id.
@@ -1221,6 +1406,11 @@ fn save_load_delete_custom_event_roundtrip() {
         label: "День рождения дочки".to_string(),
         description: "Забрать торт, купить шарики".to_string(),
         reminder_enabled: true,
+        urgent: true,
+        flagged: false,
+        completed: false,
+        repeat: crate::ReminderRepeat::Once,
+        list_id: None,
     };
 
     save_custom_event_ffi(db_path_str.clone(), event.clone()).unwrap();
@@ -1303,6 +1493,10 @@ fn migration_keeps_old_data_and_allows_several_events_per_date() {
     let events = load_custom_events_ffi(db_path_str.clone()).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].label, "Старое событие");
+    // Старые события звонили как будильники — остаются срочными.
+    assert!(events[0].urgent);
+    assert!(!events[0].completed);
+    assert_eq!(events[0].repeat, crate::ReminderRepeat::Once);
 
     // Теперь на одну дату можно положить второе событие.
     let second = CustomEvent {
@@ -1313,6 +1507,11 @@ fn migration_keeps_old_data_and_allows_several_events_per_date() {
         label: "Второе".to_string(),
         description: String::new(),
         reminder_enabled: true,
+        urgent: true,
+        flagged: false,
+        completed: false,
+        repeat: crate::ReminderRepeat::Once,
+        list_id: None,
     };
     save_custom_event_ffi(db_path_str.clone(), second).unwrap();
     assert_eq!(load_custom_events_ffi(db_path_str.clone()).unwrap().len(), 2);
@@ -1532,6 +1731,180 @@ fn timezone_alarm_follows_device_timezone_and_migrates() {
     assert_eq!(m.time_local, NaiveTime::from_hms_opt(10, 0, 0).unwrap());
     assert_eq!(m.source_tz.as_deref(), Some("Asia/Yekaterinburg"));
 
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn recurring_alarm_with_foreign_timezone() {
+    let db_path = std::env::temp_dir().join(format!("test_extra_tz_rec_{}.db", Uuid::new_v4()));
+    let p = db_path.to_str().unwrap().to_string();
+    let _conn = init_db(&p).unwrap();
+
+    // Каждый день в 05:00 по Екатеринбургу = 03:00 по Москве.
+    let alarm = ExtraAlarm {
+        id: Uuid::new_v4(), label: "Серия".to_string(),
+        time_local: NaiveTime::from_hms_opt(5, 0, 0).unwrap(),
+        kind: ExtraAlarmKind::AllDays, date: None, enabled: true,
+        source_tz: Some("Asia/Yekaterinburg".to_string()), lead_minutes: 0,
+    };
+    save_extra_alarm_ffi(p.clone(), alarm).unwrap();
+
+    let from = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+    let list = generate_extra_alarms_from(&p, from, 1, "Europe/Moscow").unwrap();
+    assert!(list.len() >= 28);
+    assert!(list.iter().all(|i| i.time_local == NaiveTime::from_hms_opt(3, 0, 0).unwrap()));
+    assert_eq!(list[0].date, from);
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[cfg(test)]
+fn reminder(date: (i32, u32, u32), time: (u32, u32), repeat: crate::ReminderRepeat, urgent: bool) -> CustomEvent {
+    CustomEvent {
+        id: Uuid::new_v4(),
+        date: NaiveDate::from_ymd_opt(date.0, date.1, date.2).unwrap(),
+        time_local: NaiveTime::from_hms_opt(time.0, time.1, 0).unwrap(),
+        color: "#fff".to_string(),
+        label: "R".to_string(),
+        description: String::new(),
+        reminder_enabled: true,
+        urgent,
+        flagged: false,
+        completed: false,
+        repeat,
+        list_id: None,
+    }
+}
+
+#[test]
+fn next_repeat_date_rules() {
+    use crate::{next_repeat_date, ReminderRepeat::*};
+    let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+    assert_eq!(next_repeat_date(d(2026, 10, 15), Once), None);
+    assert_eq!(next_repeat_date(d(2026, 10, 15), Daily), Some(d(2026, 10, 16)));
+    assert_eq!(next_repeat_date(d(2026, 10, 15), Weekly), Some(d(2026, 10, 22)));
+    // пятница -> понедельник
+    assert_eq!(next_repeat_date(d(2026, 10, 16), Weekdays), Some(d(2026, 10, 19)));
+    assert_eq!(next_repeat_date(d(2026, 10, 14), Weekdays), Some(d(2026, 10, 15)));
+    // конец месяца прижимается
+    assert_eq!(next_repeat_date(d(2026, 1, 31), Monthly), Some(d(2026, 2, 28)));
+    assert_eq!(next_repeat_date(d(2028, 2, 29), Yearly), Some(d(2029, 2, 28)));
+}
+
+#[test]
+fn occurrences_expand_repeats_and_skip_done() {
+    use crate::{reminder_occurrences, ReminderRepeat::*};
+    let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+
+    let once = reminder((2026, 10, 20), (9, 0), Once, false);
+    let daily = reminder((2026, 10, 10), (7, 30), Daily, true); // начало в прошлом
+    let mut done = reminder((2026, 10, 21), (9, 0), Once, false);
+    done.completed = true;
+    let mut off = reminder((2026, 10, 22), (9, 0), Once, false);
+    off.reminder_enabled = false;
+
+    let occ = reminder_occurrences(&[once.clone(), daily.clone(), done, off], d(2026, 10, 18), d(2026, 10, 22));
+    // daily: 18,19,20,21,22 (5) + once 20 (1)
+    assert_eq!(occ.len(), 6);
+    assert!(occ.iter().all(|o| o.date >= d(2026, 10, 18) && o.date <= d(2026, 10, 22)));
+    assert_eq!(occ.iter().filter(|o| o.event_id == once.id).count(), 1);
+    assert_eq!(occ.iter().filter(|o| o.event_id == daily.id && o.urgent).count(), 5);
+    // отсортировано по дате и времени
+    assert!(occ.windows(2).all(|w| (w[0].date, w[0].time_local) <= (w[1].date, w[1].time_local)));
+}
+
+#[test]
+fn complete_once_and_repeating() {
+    use crate::ReminderRepeat::*;
+    let db_path = std::env::temp_dir().join(format!("test_complete_{}.db", Uuid::new_v4()));
+    let p = db_path.to_str().unwrap().to_string();
+    let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+
+    let once = reminder((2026, 10, 15), (9, 0), Once, false);
+    let daily = reminder((2026, 10, 15), (9, 0), Daily, true);
+    save_custom_event_ffi(p.clone(), once.clone()).unwrap();
+    save_custom_event_ffi(p.clone(), daily.clone()).unwrap();
+
+    complete_reminder_ffi(p.clone(), once.id, d(2026, 10, 15)).unwrap();
+    complete_reminder_ffi(p.clone(), daily.id, d(2026, 10, 15)).unwrap();
+
+    let loaded = load_custom_events_ffi(p.clone()).unwrap();
+    let o = loaded.iter().find(|e| e.id == once.id).unwrap();
+    let r = loaded.iter().find(|e| e.id == daily.id).unwrap();
+    assert!(o.completed);
+    assert!(!r.completed);
+    assert_eq!(r.date, d(2026, 10, 16));
+
+    // отмечено с опозданием на 3 дня: уезжает на первую дату ПОСЛЕ дня выполнения
+    complete_reminder_ffi(p.clone(), daily.id, d(2026, 10, 19)).unwrap();
+    let r = load_custom_events_ffi(p.clone()).unwrap().into_iter().find(|e| e.id == daily.id).unwrap();
+    assert_eq!(r.date, d(2026, 10, 20));
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn reminder_lists_crud_and_delete_detaches_reminders() {
+    use crate::ReminderRepeat::Once;
+    let db_path = std::env::temp_dir().join(format!("test_lists_{}.db", Uuid::new_v4()));
+    let p = db_path.to_str().unwrap().to_string();
+
+    let work = crate::ReminderList { id: Uuid::new_v4(), name: "Работа".into(), color: "#4A90D9".into() };
+    let home = crate::ReminderList { id: Uuid::new_v4(), name: "Дом".into(), color: "#E8A33D".into() };
+    save_reminder_list_ffi(p.clone(), work.clone()).unwrap();
+    save_reminder_list_ffi(p.clone(), home.clone()).unwrap();
+
+    let mut ev = reminder((2026, 10, 15), (9, 0), Once, false);
+    ev.list_id = Some(work.id);
+    ev.flagged = true;
+    save_custom_event_ffi(p.clone(), ev.clone()).unwrap();
+
+    let lists = load_reminder_lists_ffi(p.clone()).unwrap();
+    assert_eq!(lists.len(), 2);
+    assert_eq!(lists[0].name, "Работа"); // порядок создания
+
+    let loaded = load_custom_events_ffi(p.clone()).unwrap();
+    assert_eq!(loaded[0].list_id, Some(work.id));
+    assert!(loaded[0].flagged);
+
+    delete_reminder_list_ffi(p.clone(), work.id).unwrap();
+    assert_eq!(load_reminder_lists_ffi(p.clone()).unwrap().len(), 1);
+    let loaded = load_custom_events_ffi(p.clone()).unwrap();
+    assert_eq!(loaded.len(), 1); // напоминание осталось
+    assert_eq!(loaded[0].list_id, None);
+
+    std::fs::remove_file(db_path).ok();
+}
+
+#[test]
+fn migration_v3_to_v4_keeps_events_and_makes_them_urgent() {
+    use rusqlite::Connection;
+    let db_path = std::env::temp_dir().join(format!("test_v3v4_{}.db", Uuid::new_v4()));
+    let p = db_path.to_str().unwrap().to_string();
+    {
+        // база версии 3 (после v2/v3, до напоминаний)
+        let c = Connection::open(&db_path).unwrap();
+        c.execute_batch(
+            "CREATE TABLE custom_events (
+                id TEXT PRIMARY KEY, date TEXT NOT NULL, time_local TEXT NOT NULL,
+                color TEXT NOT NULL, label TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '', reminder_enabled INTEGER NOT NULL DEFAULT 1);
+             INSERT INTO custom_events VALUES
+                ('11111111-1111-1111-1111-111111111111','2026-10-15','08:00:00','#fff','Звонил','',1),
+                ('22222222-2222-2222-2222-222222222222','2026-10-16','09:00:00','#fff','Молчал','',0);
+             CREATE TABLE extra_alarms (id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', time_local TEXT NOT NULL,
+                kind TEXT NOT NULL, date TEXT, enabled INTEGER NOT NULL DEFAULT 1, source_tz TEXT,
+                lead_minutes INTEGER NOT NULL DEFAULT 0);
+             PRAGMA user_version = 3;",
+        )
+        .unwrap();
+    }
+    let events = load_custom_events_ffi(p).unwrap();
+    assert_eq!(events.len(), 2);
+    let rang = events.iter().find(|e| e.label == "Звонил").unwrap();
+    let quiet = events.iter().find(|e| e.label == "Молчал").unwrap();
+    assert!(rang.urgent && rang.reminder_enabled);
+    assert!(!quiet.urgent && !quiet.reminder_enabled);
     std::fs::remove_file(db_path).ok();
 }
 }

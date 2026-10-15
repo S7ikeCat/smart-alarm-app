@@ -1,6 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Alert, ScrollView } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ListChecks, ChevronRight } from 'lucide-react-native';
+import type { ToolsStackParamList } from '../../navigation/types';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing } from '../../theme/spacing';
@@ -9,6 +13,8 @@ import {
   requestExactAlarmPermission,
   hasFullScreenIntentPermission,
   requestFullScreenIntentPermission,
+  hasOverlayPermission,
+  requestOverlayPermission,
   scheduleTestAlarm,
   showRingPreview,
   readJournal,
@@ -16,13 +22,17 @@ import {
 } from '../../native/alarmScheduler';
 
 export function ToolsScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<ToolsStackParamList, 'ToolsHome'>>();
+  const insets = useSafeAreaInsets();
   const [hasExact, setHasExact] = useState<boolean | null>(null);
   const [hasFullScreen, setHasFullScreen] = useState<boolean | null>(null);
+  const [hasOverlay, setHasOverlay] = useState<boolean | null>(null);
   const [journal, setJournal] = useState('');
 
   const refresh = useCallback(() => {
     hasExactAlarmPermission().then(setHasExact);
     hasFullScreenIntentPermission().then(setHasFullScreen);
+    hasOverlayPermission().then(setHasOverlay);
     readJournal()
       .then(text => setJournal(text.split('\n').reverse().join('\n'))) // новые сверху
       .catch(error => setJournal(`Не удалось прочитать журнал: ${error}`));
@@ -49,13 +59,24 @@ export function ToolsScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}>
       <Text style={styles.title}>Инструменты</Text>
+
+      <Pressable style={styles.entry} onPress={() => navigation.navigate('RemindersHub')}>
+        <ListChecks color={colors.accent} size={22} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.entryTitle}>Напоминания</Text>
+          <Text style={styles.entryHint}>Списки, срочные (звонят как будильник), повторы</Text>
+        </View>
+        <ChevronRight color={colors.textSecondary} size={20} />
+      </Pressable>
 
       <Text style={styles.status}>
         Точные будильники: {hasExact === null ? '...' : hasExact ? 'есть ✅' : 'нет ❌'}
         {'\n'}
         Показ поверх блокировки: {hasFullScreen === null ? '...' : hasFullScreen ? 'есть ✅' : 'нет ❌'}
+        {'\n'}
+        Плашка поверх приложений: {hasOverlay === null ? '...' : hasOverlay ? 'есть ✅' : 'нет ❌'}
       </Text>
 
       {hasExact === false && (
@@ -66,6 +87,12 @@ export function ToolsScreen() {
       {hasFullScreen === false && (
         <Pressable style={styles.button} onPress={() => requestFullScreenIntentPermission()}>
           <Text style={styles.buttonText}>Разрешить показ поверх блокировки</Text>
+        </Pressable>
+      )}
+
+      {hasOverlay === false && (
+        <Pressable style={styles.button} onPress={() => requestOverlayPermission()}>
+          <Text style={styles.buttonText}>Разрешить плашку поверх приложений</Text>
         </Pressable>
       )}
 
@@ -101,6 +128,16 @@ const styles = StyleSheet.create({
   content: { padding: spacing.lg, gap: spacing.md },
   title: { ...typography.headline, color: colors.textPrimary },
   status: { ...typography.body, color: colors.textSecondary },
+  entry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+  },
+  entryTitle: { ...typography.body, fontWeight: '600', color: colors.textPrimary },
+  entryHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   button: {
     backgroundColor: colors.accent,
     borderRadius: 12,

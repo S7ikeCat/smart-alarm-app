@@ -77,7 +77,109 @@ pub struct CustomEvent {
     pub color: String,
     pub label: String,
     pub description: String,
+    /// Напоминать вообще (выкл — просто запись в списке и в календаре).
     pub reminder_enabled: bool,
+    /// Срочное: приходит как будильник со звонком. Обычное — как уведомление.
+    pub urgent: bool,
+    /// Флажок — метка для фильтра «С флажком», на звонок не влияет.
+    pub flagged: bool,
+    /// Выполнено: не напоминает и лежит в «Завершено». У повторяющихся не
+    /// используется — при выполнении они просто уходят на следующую дату.
+    pub completed: bool,
+    pub repeat: ReminderRepeat,
+    /// В каком списке лежит напоминание (None — «Напоминания» по умолчанию).
+    pub list_id: Option<Uuid>,
+}
+
+/// Как часто повторяется напоминание.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum ReminderRepeat {
+    Once,
+    Daily,
+    Weekdays, // по будням, пн–пт
+    Weekly,
+    Monthly,
+    Yearly,
+}
+
+/// Список напоминаний («Работа», «Дом»…): название и цвет.
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct ReminderList {
+    pub id: Uuid,
+    pub name: String,
+    pub color: String,
+}
+
+/// Конкретное срабатывание напоминания на дату (с учётом повторов).
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
+pub struct ReminderOccurrence {
+    pub event_id: Uuid,
+    pub date: NaiveDate,
+    pub time_local: NaiveTime,
+    pub label: String,
+    pub urgent: bool,
+}
+
+/// Следующая дата повторяющегося напоминания (None — не повторяется).
+/// Ежемесячные и ежегодные «прижимаются» к концу месяца (31 янв -> 28 фев).
+pub fn next_repeat_date(date: NaiveDate, repeat: ReminderRepeat) -> Option<NaiveDate> {
+    use chrono::Weekday;
+    match repeat {
+        ReminderRepeat::Once => None,
+        ReminderRepeat::Daily => date.succ_opt(),
+        ReminderRepeat::Weekly => date.checked_add_signed(chrono::Duration::days(7)),
+        ReminderRepeat::Weekdays => {
+            let mut next = date.succ_opt()?;
+            while matches!(next.weekday(), Weekday::Sat | Weekday::Sun) {
+                next = next.succ_opt()?;
+            }
+            Some(next)
+        }
+        ReminderRepeat::Monthly => date.checked_add_months(chrono::Months::new(1)),
+        ReminderRepeat::Yearly => date.checked_add_months(chrono::Months::new(12)),
+    }
+}
+
+/// Все срабатывания напоминаний в окне [from, to]. Выполненные и с выключенным
+/// напоминанием пропускаются; повторяющиеся раскладываются по датам.
+pub fn reminder_occurrences(
+    events: &[CustomEvent],
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Vec<ReminderOccurrence> {
+    let mut out = Vec::new();
+    for event in events {
+        if !event.reminder_enabled || event.completed {
+            continue;
+        }
+        let mut date = event.date;
+        let mut guard = 0;
+        // Повторяющееся, которое давно не отмечали: догоняем до начала окна.
+        while date < from && event.repeat != ReminderRepeat::Once && guard < 20_000 {
+            match next_repeat_date(date, event.repeat) {
+                Some(d) => date = d,
+                None => break,
+            }
+            guard += 1;
+        }
+        while date <= to {
+            if date >= from {
+                out.push(ReminderOccurrence {
+                    event_id: event.id,
+                    date,
+                    time_local: event.time_local,
+                    label: event.label.clone(),
+                    urgent: event.urgent,
+                });
+            }
+            match next_repeat_date(date, event.repeat) {
+                Some(d) => date = d,
+                None => break,
+            }
+        }
+    }
+    out.sort_by(|a, b| (a.date, a.time_local).cmp(&(b.date, b.time_local)));
+    out
 }
 
 /// Диапазон дат, помеченный как "пауза" графика (отпуск, больничный) —

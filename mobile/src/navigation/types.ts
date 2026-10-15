@@ -24,11 +24,21 @@ import type { NativeCustomEvent } from '../native/alarmCore';
 
 export type CalendarStackParamList = {
   CalendarMain: undefined;
-  AddEvent:
-    | {
-        existingEvent?: NativeCustomEvent;
-        date?: string; // "YYYY-MM-DD" — подставить дату для нового события
-        fromSchedule?: boolean; // после сохранения вернуться на вкладку «Графики»
-      }
-    | undefined;
+  AddEvent: AddEventParams;
+};
+
+export type AddEventParams =
+  | {
+      existingEvent?: NativeCustomEvent;
+      date?: string; // "YYYY-MM-DD" — подставить дату для нового напоминания
+      fromSchedule?: boolean; // после сохранения вернуться на вкладку «Графики»
+      listId?: string; // предвыбрать список
+    }
+  | undefined;
+
+export type ToolsStackParamList = {
+  ToolsHome: undefined;
+  RemindersHub: undefined;
+  ReminderList: { filter?: import('../utils/reminders').SmartFilter; listId?: string; title: string };
+  AddEvent: AddEventParams;
 };

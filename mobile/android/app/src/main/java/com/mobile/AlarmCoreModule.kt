@@ -242,6 +242,16 @@ fun saveCustomEventJson(eventJson: String, promise: Promise) {
             label = obj.getString("label"),
             description = obj.optString("description", ""),
             reminderEnabled = obj.optBoolean("reminderEnabled", true),
+            // Старый интерфейс полей не присылает: тогда событие, как раньше, звонит будильником.
+            urgent = obj.optBoolean("urgent", true),
+            flagged = obj.optBoolean("flagged", false),
+            completed = obj.optBoolean("completed", false),
+            repeat = try {
+                ReminderRepeat.valueOf(obj.optString("repeat", "ONCE"))
+            } catch (e: IllegalArgumentException) {
+                ReminderRepeat.ONCE
+            },
+            listId = if (obj.has("listId") && !obj.isNull("listId")) obj.getString("listId") else null,
         )
         saveCustomEventFfi(dbPath(), event)
         promise.resolve(null)
@@ -264,11 +274,72 @@ fun loadCustomEventsJson(promise: Promise) {
             obj.put("label", ev.label)
             obj.put("description", ev.description)
             obj.put("reminderEnabled", ev.reminderEnabled)
+            obj.put("urgent", ev.urgent)
+            obj.put("flagged", ev.flagged)
+            obj.put("completed", ev.completed)
+            obj.put("repeat", ev.repeat.name)
+            obj.put("listId", ev.listId ?: JSONObject.NULL)
             array.put(obj)
         }
         promise.resolve(array.toString())
     } catch (e: Exception) {
         promise.reject("LOAD_EVENTS_ERROR", e.message, e)
+    }
+}
+
+/** Отметить напоминание выполненным (повторяющееся уезжает на следующую дату). */
+@ReactMethod
+fun completeReminder(eventId: String, doneDate: String, promise: Promise) {
+    try {
+        completeReminderFfi(dbPath(), eventId, doneDate)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("COMPLETE_REMINDER_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun saveReminderListJson(listJson: String, promise: Promise) {
+    try {
+        val obj = JSONObject(listJson)
+        saveReminderListFfi(
+            dbPath(),
+            ReminderList(
+                id = obj.getString("id"),
+                name = obj.getString("name"),
+                color = obj.getString("color"),
+            ),
+        )
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("SAVE_REMINDER_LIST_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun loadReminderListsJson(promise: Promise) {
+    try {
+        val array = JSONArray()
+        for (list in loadReminderListsFfi(dbPath())) {
+            val obj = JSONObject()
+            obj.put("id", list.id)
+            obj.put("name", list.name)
+            obj.put("color", list.color)
+            array.put(obj)
+        }
+        promise.resolve(array.toString())
+    } catch (e: Exception) {
+        promise.reject("LOAD_REMINDER_LISTS_ERROR", e.message, e)
+    }
+}
+
+@ReactMethod
+fun deleteReminderList(listId: String, promise: Promise) {
+    try {
+        deleteReminderListFfi(dbPath(), listId)
+        promise.resolve(null)
+    } catch (e: Exception) {
+        promise.reject("DELETE_REMINDER_LIST_ERROR", e.message, e)
     }
 }
 

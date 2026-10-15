@@ -30,6 +30,14 @@ export function requestExactAlarmPermission(): Promise<void> {
     return AlarmScheduler.openOemBackgroundSettings();
   }
   
+  export function hasOverlayPermission(): Promise<boolean> {
+    return AlarmScheduler.hasOverlayPermission();
+  }
+  
+  export function requestOverlayPermission(): Promise<void> {
+    return AlarmScheduler.requestOverlayPermission();
+  }
+  
   export function showRingPreview(): Promise<void> {
     return AlarmScheduler.showRingPreview();
   }
